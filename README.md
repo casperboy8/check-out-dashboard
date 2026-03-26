@@ -32,3 +32,30 @@ Zorg dat je `git` hebt geïnstalleerd en kloon de repository naar je server:
 ```bash
 git clone [https://github.com/casperboy8/check-out-dashboard.git](https://github.com/casperboy8/check-out-dashboard.git) ~/Snipe-it-Dashboard
 cd ~/Snipe-it-Dashboard
+```
+
+### 2. Configuratie
+De applicatie vereist een `config.py` bestand in de hoofdmap met je API-sleutels. (Zie `config.example.py` voor een sjabloon).
+* Kopieer het sjabloon: `cp config.example.py config.py`
+* Vul je gegevens in: `nano config.py`
+
+### 3. Start de applicatie (Docker)
+Zorg dat Docker en Docker Compose geïnstalleerd zijn op je server. Voer het volgende commando uit om de image te bouwen en op de achtergrond te starten:
+```bash
+docker compose up -d --build
+```
+
+De applicatie is nu bereikbaar op: `http://<jouw-server-ip>:5000`
+
+## 🔄 Updaten
+Als er nieuwe code naar de repository is gepusht, update je de draaiende server simpelweg met deze one-liner:
+```bash
+cd ~/Snipe-it-Dashboard && git pull origin main && docker compose up -d --build
+```
+
+## 📁 Bestandsstructuur
+* `app.py`: De hoofd Flask-router en de achtergrond-worker.
+* `snipe_api.py`: Logica voor Snipe-IT communicatie (checkouts, klanten).
+* `action1_sync.py`: Logica voor de Action1 API, RMM synchronisatie en auto-creatie.
+* `import_check.py`: De geavanceerde Excel (Pandas) matcher en validator.
+* `templates/`: Frontend bestanden (HTML/Bootstrap).
