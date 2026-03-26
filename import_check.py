@@ -67,26 +67,30 @@ def vind_kolom(headers, prioriteiten):
                 return h
     return None
 
-def vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids):
-    def is_actief(a):
-        # We beschouwen een apparaat pas als "Actief" als hij niet in de prullenbak 
-        # ligt en niet officieel als Archived staat aangemerkt.
-        if a.get('deleted_at'): return False
-        if a.get('status_label', {}).get('type') == 'archived': return False
-        return True
+def is_actief_asset(a):
+    """Controleert 100% zeker of een apparaat echt actief is (niet verwijderd/afgeschreven)"""
+    if a.get('deleted_at'): return False
+    status_label = a.get('status_label')
+    if isinstance(status_label, dict):
+        # Gebruik de juiste Snipe-IT API sleutel (status_meta in plaats van type)
+        meta = str(status_label.get('status_meta', '')).lower()
+        if meta in ['archived', 'undeployable']: 
+            return False
+    return True
 
-    # STAP 1: Koppel ALTIJD eerst de actieve apparaten
+def vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids):
+    # STAP 1: Koppel ALTIJD eerst de ACTIEVE apparaten
     if e_s_clean and e_s_clean in by_serial:
         for a in by_serial[e_s_clean]:
-            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+            if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
     if e_n_clean and e_n_clean in by_name:
         for a in by_name[e_n_clean]:
-            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+            if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
     if e_n_clean and e_n_clean in by_tag:
         for a in by_tag[e_n_clean]:
-            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+            if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
 
-    # STAP 2: Fallback voor als alleen nog een oud/afgeschreven apparaat over is
+    # STAP 2: Fallback voor als er alleen nog een oud/afgeschreven apparaat in Snipe-IT zwerft
     if e_s_clean and e_s_clean in by_serial:
         for a in by_serial[e_s_clean]:
             if a['id'] not in gekoppelde_ids: return a
@@ -153,8 +157,8 @@ def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
 
     spook_lijst = []
     for asset in snipe_assets:
-        # HIDE DELETED ASSETS FROM SPOOKLIJST: Je wil geen verwijderde items als spook zien
-        if asset['id'] not in gekoppelde_ids and not asset.get('deleted_at'):
+        # Als hij niet gematcht is én het is een ACTIEF apparaat, toon hem dan als spook
+        if asset['id'] not in gekoppelde_ids and is_actief_asset(asset):
             status_label = asset.get('status_label')
             status_naam = status_label.get('name', 'Geen status') if status_label else 'Geen status'
             s_company = asset.get('company', {})
@@ -243,7 +247,6 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
                     if isinstance(v, dict):
                         field_name = str(v.get('field', '')).lower()
                         k_lower = str(k).lower()
-                        # Strict check, voorkomt false positives op 'Manufacturer'
                         if 'gefactureerd' in k_lower or 'factuur' in k_lower or 'gefactureerd' in field_name or 'factuur' in field_name:
                             v_val = str(v.get('value')).lower().strip()
                             if v_val in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']:
