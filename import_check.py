@@ -45,19 +45,38 @@ def haal_snipe_assets_op():
     return alle_assets
 
 def super_clean(val):
-    """Verwijder alle niet-alphanumerieke tekens voor een zuivere match."""
     if val is None or pd.isna(val): return ""
     return re.sub(r'[^a-z0-9]', '', str(val).lower())
+
+def extreme_clean_company(val):
+    v = super_clean(val)
+    for suffix in ['bv', 'nv', 'vof']:
+        if v.endswith(suffix):
+            v = v[:-len(suffix)]
+    return v.strip()
+
+def vind_kolom(headers, prioriteiten):
+    """Zoekt eerst naar een exacte match, daarna naar een gedeeltelijke match."""
+    for p in prioriteiten:
+        for h in headers:
+            if str(h).strip().lower() == p.lower():
+                return h
+    for p in prioriteiten:
+        if len(p) <= 3: continue
+        for h in headers:
+            if p.lower() in str(h).strip().lower():
+                return h
+    return None
 
 def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
     df = df.fillna('')
     headers = list(df.columns)
     
-    n_col = next((c for c in headers if any(x in str(c).lower() for x in ['pc-naam', 'pc naam', 'naam', 'hostname', 'endpoint', 'apparaat', 'product'])), None)
-    s_col = next((c for c in headers if any(x in str(c).lower() for x in ['serienummer', 'serial', 'serie', 'sn'])), None)
-    c_col = next((c for c in headers if any(x in str(c).lower() for x in ['bedrijf', 'company', 'klant', 'tenant', 'relatie'])), None)
-    m_col = next((c for c in headers if any(x in str(c).lower() for x in ['merk', 'manufacturer', 'fabrikant'])), None)
-    mod_col = next((c for c in headers if any(x in str(c).lower() for x in ['model'])), None)
+    n_col = vind_kolom(headers, ['pc-naam', 'pc naam', 'naam', 'hostname', 'endpoint', 'apparaat'])
+    s_col = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
+    c_col = vind_kolom(headers, ['company', 'bedrijf', 'klant', 'tenant', 'relatie'])
+    m_col = vind_kolom(headers, ['merk', 'manufacturer', 'fabrikant'])
+    mod_col = vind_kolom(headers, ['modelnummer', 'model'])
     
     gekoppelde_ids = set()
     gevonden_lijst = []
@@ -142,10 +161,10 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
     df = df.fillna('')
     headers = list(df.columns)
     
-    n_col = next((c for c in headers if any(x in str(c).lower() for x in ['naam', 'product', 'pc-naam', 'apparaat', 'asset'])), None)
-    s_col = next((c for c in headers if any(x in str(c).lower() for x in ['serienummer', 'serial', 'serie', 'sn'])), None)
-    k_col = next((c for c in headers if any(x in str(c).lower() for x in ['klant', 'company', 'bedrijf', 'relatie', 'tenant'])), None)
-    f_col = next((c for c in headers if any(x in str(c).lower() for x in ['fact', 'gefactureerd', 'betaald'])), None)
+    n_col = vind_kolom(headers, ['naam', 'pc-naam', 'endpoint', 'asset'])
+    s_col = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
+    k_col = vind_kolom(headers, ['klant', 'company', 'bedrijf', 'relatie', 'tenant'])
+    f_col = vind_kolom(headers, ['gefactureerd?', 'gefactureerd', 'fact', 'betaald'])
 
     perfect_lijst = []
     afwijking_lijst = []
@@ -161,6 +180,7 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
         val_fact = str(row[f_col]).strip().lower() if f_col else ""
         
         excel_fact_bool = val_fact in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']
+        str_fact_excel = "Ja" if excel_fact_bool else "Nee"
         
         e_n_clean = super_clean(val_naam)
         e_s_clean = super_clean(val_serial)
@@ -181,7 +201,7 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
             "naam": val_naam or "[Geen naam]",
             "serial": val_serial,
             "klant_excel": val_klant,
-            "fact_excel": "Ja" if excel_fact_bool else "Nee"
+            "fact_excel": str_fact_excel
         }
 
         if match_gevonden:
@@ -189,24 +209,21 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
             
             snipe_klant = match_gevonden.get('company', {}).get('name', '') if match_gevonden.get('company') else ""
             
-            # --- VERNIEUWDE UITGECHECKT LOGICA ---
             assigned_to = match_gevonden.get('assigned_to')
             status_label = match_gevonden.get('status_label', {})
             status_meta = str(status_label.get('status_meta', '')).lower()
             status_naam_str = str(status_label.get('name', '')).lower()
             
             is_uitgecheckt = False
-            # 1. Is hij hard aan een user/location gekoppeld?
             if assigned_to is not None: 
                 is_uitgecheckt = True
-            # 2. Is de API meta-status 'deployed'?
             elif status_meta == 'deployed':
                 is_uitgecheckt = True
-            # 3. Klinkt de statusnaam alsof hij is uitgegeven? (Jouw handmatige statussen)
             elif any(woord in status_naam_str for woord in ['uitgegeven', 'in gebruik', 'klant']):
                 is_uitgecheckt = True
+            elif status_meta not in ['undeployable', 'archived'] and status_naam_str not in ['in magazijn', 'voorraad', 'besteld', 'klaar voor levering']:
+                is_uitgecheckt = True
             
-            # --- FACTURATIE LOGICA ---
             snipe_gefactureerd_bool = False
             custom_fields = match_gevonden.get('custom_fields')
             if isinstance(custom_fields, dict):
@@ -220,21 +237,22 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
                                 snipe_gefactureerd_bool = True
                             break
             
+            str_fact_snipe = "Ja" if snipe_gefactureerd_bool else "Nee"
+            
             afwijkingen = []
             
-            # Vergelijk bedrijf (met normale opschoning)
-            if super_clean(val_klant) not in super_clean(snipe_klant) and super_clean(snipe_klant) not in super_clean(val_klant):
+            if extreme_clean_company(val_klant) not in extreme_clean_company(snipe_klant) and extreme_clean_company(snipe_klant) not in extreme_clean_company(val_klant):
                 afwijkingen.append("Klant mismatch")
                 
             if not is_uitgecheckt:
                 afwijkingen.append("Niet uitgecheckt")
                 
-            if excel_fact_bool != snipe_gefactureerd_bool:
+            if str_fact_excel != str_fact_snipe:
                 afwijkingen.append("Factuur mismatch")
                 
             item_info['snipe_klant'] = snipe_klant
             item_info['uitgecheckt'] = "Ja" if is_uitgecheckt else "Nee"
-            item_info['fact_snipe'] = "Ja" if snipe_gefactureerd_bool else "Nee"
+            item_info['fact_snipe'] = str_fact_snipe
             item_info['afwijkingen'] = afwijkingen
             
             if len(afwijkingen) > 0:
@@ -281,7 +299,10 @@ def controleer_upload(file_stream, filename):
     }
     
     try:
-        file_bytes = file_stream.read()
+        if isinstance(file_stream, bytes):
+            file_bytes = file_stream
+        else:
+            file_bytes = file_stream.read()
         
         if filename.lower().endswith(('.xlsx', '.xls')):
             xls = pd.ExcelFile(io.BytesIO(file_bytes))
