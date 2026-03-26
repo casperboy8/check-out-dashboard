@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Dashboard | Check-out</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        /* Specifieke class toegevoegd voor de content, zodat de navbar met rust gelaten wordt */
+        .content-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px;}
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1055; }
+        .bulk-actions { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">IT Dashboard</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="/">Uitgecheckte Items</a></li>
+        <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Action1 Sync</a></li>
+        <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
+        <li class="nav-item"><a class="nav-link" href="/import_dashboard">CSV Controle</a></li>
+      </u
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid content-container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Logboek: Uitgecheckte Items</h1>
+        <button class="btn btn-outline-primary" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> Ververs Data
+        </button>
+    </div>
+
+    {% if not db_column_naam and items|length > 0 %}
+    <div class="alert alert-danger" role="alert">⚠️ Veld 'Gefactureerd' niet gevonden.</div>
+    {% endif %}
+
+    {% if items|length == 0 %}
+    <div class="alert alert-info" role="alert">Geen uitgecheckte items gevonden.</div>
+    {% else %}
+    
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <label class="form-label">Tijdsperiode:</label>
+            <select id="filter_periode" class="form-select" onchange="applyFilters()">
+                <option value="all">Alles weergeven</option>
+                <option value="1h">Laatste uur</option>
+                <option value="24h">Laatste 24 uur</option>
+                <option value="7d">Laatste 7 dagen</option>
+                <option value="30d">Laatste 30 dagen</option>
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Facturatie status:</label>
+            <select id="filter_status" class="form-select" onchange="applyFilters()">
+                <option value="niet_gefactureerd">Alleen niet gefactureerd</option>
+                <option value="all">Alles weergeven</option>
+                <option value="gefactureerd">Alleen gefactureerd</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="bulk-actions" id="bulkActionsMenu">
+        <span class="me-3 fw-bold">Geselecteerde items:</span>
+        <button class="btn btn-success btn-sm me-2" onclick="processBulk(true)"><i class="bi bi-check-circle"></i> Markeer als Gefactureerd</button>
+        <button class="btn btn-warning btn-sm" onclick="processBulk(false)"><i class="bi bi-x-circle"></i> Markeer als Niet Gefactureerd</button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width: 50px;"><input class="form-check-input" type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th>
+                    <th>Status</th><th>Item</th><th>Uitgevoerd door</th><th>Gegeven aan</th><th>Tijdstip</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr class="item-row" data-timestamp="{{ item.timestamp_ms }}" data-gefactureerd="{{ 'true' if item.Gefactureerd else 'false' }}">
+                    <td>
+                        <input class="form-check-input row-checkbox" type="checkbox" onchange="updateBulkMenuVisibility()"
+                               data-item-id="{{ item.item_id }}" data-is-asset="{{ 'true' if item.is_asset else 'false' }}" data-item-naam="{{ item.Item }}" {% if not item.is_asset %}disabled{% endif %}>
+                    </td>
+                    <td>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input status-toggle" type="checkbox" role="switch"
+                                   {% if item.Gefactureerd %}checked{% endif %} {% if not item.is_asset %}disabled{% endif %}
+                                   data-item-id="{{ item.item_id }}" data-is-asset="{{ 'true' if item.is_asset else 'false' }}" data-item-naam="{{ item.Item }}" onchange="updateSingleStatus(this)">
+                        </div>
+                    </td>
+                    <td>{{ item.Item }}</td><td>{{ item.Uitgevoerd_door }}</td><td>{{ item.Gegeven_aan }}</td><td>{{ item.Tijdstip }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<div class="toast-container"></div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const dbColumnNaam = "{{ db_column_naam }}";
+
+    function applyFilters() {
+        const period = document.getElementById('filter_periode').value;
+        const status = document.getElementById('filter_status').value;
+        const now = Date.now();
+        document.querySelectorAll('.item-row').forEach(row => {
+            const rowTime = parseInt(row.getAttribute('data-timestamp'));
+            const isFact = row.getAttribute('data-gefactureerd') === 'true';
+            let showPeriod = true, showStatus = true;
+
+            if (period === '1h') showPeriod = (now - rowTime) <= 3600000;
+            else if (period === '24h') showPeriod = (now - rowTime) <= 86400000;
+            else if (period === '7d') showPeriod = (now - rowTime) <= 604800000;
+            else if (period === '30d') showPeriod = (now - rowTime) <= 2592000000;
+
+            if (status === 'niet_gefactureerd') showStatus = !isFact;
+            else if (status === 'gefactureerd') showStatus = isFact;
+
+            if (showPeriod && showStatus) { row.style.display = ''; } 
+            else { row.style.display = 'none'; const cb = row.querySelector('.row-checkbox'); if(cb) cb.checked = false; }
+        });
+        updateBulkMenuVisibility();
+    }
+
+    function toggleSelectAll(masterCheckbox) {
+        document.querySelectorAll('.item-row').forEach(row => {
+            if (row.style.display !== 'none') {
+                const cb = row.querySelector('.row-checkbox');
+                if (cb && !cb.disabled) cb.checked = masterCheckbox.checked;
+            }
+        });
+        updateBulkMenuVisibility();
+    }
+
+    function updateBulkMenuVisibility() {
+        document.getElementById('bulkActionsMenu').style.display = document.querySelectorAll('.row-checkbox:checked').length > 0 ? 'block' : 'none';
+    }
+
+    function updateSingleStatus(toggleElement) {
+        const isChecked = toggleElement.checked;
+        toggleElement.closest('tr').setAttribute('data-gefactureerd', isChecked ? 'true' : 'false');
+        fetch('/update_status', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: toggleElement.getAttribute('data-item-id'), is_asset: toggleElement.getAttribute('data-is-asset') === 'true', status: isChecked, db_column: dbColumnNaam, item_naam: toggleElement.getAttribute('data-item-naam') })
+        }).then(r => r.json()).then(data => {
+            showToast(data.message, data.status === 'success' ? 'text-bg-success' : 'text-bg-danger');
+            if (data.status === 'error') { toggleElement.checked = !isChecked; toggleElement.closest('tr').setAttribute('data-gefactureerd', !isChecked ? 'true' : 'false'); }
+        });
+    }
+
+    function processBulk(nieuweStatus) {
+        const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+        let itemsToUpdate = [];
+        checkedBoxes.forEach(box => itemsToUpdate.push({ item_id: box.getAttribute('data-item-id'), is_asset: box.getAttribute('data-is-asset') === 'true', item_naam: box.getAttribute('data-item-naam') }));
+        if (itemsToUpdate.length === 0) return;
+        
+        fetch('/bulk_update_status', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: itemsToUpdate, status: nieuweStatus, db_column: dbColumnNaam })
+        }).then(r => r.json()).then(data => {
+            showToast(`✅ ${data.success_count} items geüpdatet.`, 'text-bg-success');
+            checkedBoxes.forEach(box => {
+                const tr = box.closest('tr');
+                tr.setAttribute('data-gefactureerd', nieuweStatus ? 'true' : 'false');
+                tr.querySelector('.status-toggle').checked = nieuweStatus;
+                box.checked = false;
+            });
+            document.getElementById('selectAllCheckbox').checked = false;
+            updateBulkMenuVisibility(); applyFilters();
+        });
+    }
+
+    function showToast(message, colorClass) {
+        const toastHTML = `<div class="toast align-items-center ${colorClass} border-0 mb-2" role="alert" aria-live="assertive" aria-atomic="true"><div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`;
+        document.querySelector('.toast-container').insertAdjacentHTML('beforeend', toastHTML);
+        const toastElements = document.querySelectorAll('.toast');
+        const latestToast = toastElements[toastElements.length - 1];
+        new bootstrap.Toast(latestToast, { delay: 4000 }).show();
+        latestToast.addEventListener('hidden.bs.toast', () => latestToast.remove());
+    }
+
+    document.addEventListener('DOMContentLoaded', applyFilters);
+</script>
+</body>
+</html>

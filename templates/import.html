@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>IT Dashboard | Finale Matcher</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .content-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
+        .table-container { max-height: 550px; overflow-y: auto; }
+        #loader { display: none; margin-top: 20px; }
+        .extra-info { font-size: 0.8em; color: #6c757d; display: block; margin-top: 2px; }
+        .badge-status { font-size: 0.75em; margin-left: 5px; }
+        .nav-tabs .nav-link.active { font-weight: bold; background-color: #e9ecef;}
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">IT Dashboard</a>
+    <div class="collapse navbar-collapse">
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="/">Checkouts</a></li>
+        <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Sync</a></li>
+        <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/import_dashboard">Lijst Controle</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid content-container">
+    <h2 class="mb-4">Excel vs Snipe-IT Database Controle</h2>
+    <div class="row mb-4 bg-light p-4 rounded border">
+        <div class="col-md-9"><input class="form-control" type="file" id="fileInput" accept=".xlsx, .xls, .csv"></div>
+        <div class="col-md-3"><button class="btn btn-primary w-100" onclick="uploadFile()"><i class="bi bi-search"></i> Start Analyse</button></div>
+    </div>
+
+    <div id="loader" class="text-center">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">Bezig met scannen van alle Snipe-IT assets én meerdere Excel tabbladen...</p>
+    </div>
+
+    <div id="resultsArea" style="display: none;">
+        <div class="alert alert-info border-primary" id="summaryAlert"></div>
+
+        <ul class="nav nav-tabs mb-4" id="resultTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active text-dark" id="inv-tab" data-bs-toggle="tab" data-bs-target="#inv" type="button" role="tab">
+                    <i class="bi bi-boxes"></i> 1. Inventaris Controle
+                </button>
+            </li>
+            <li class="nav-item" role="presentation" id="uitgegevenTabItem" style="display:none;">
+                <button class="nav-link text-dark" id="uit-tab" data-bs-toggle="tab" data-bs-target="#uit" type="button" role="tab">
+                    <i class="bi bi-clipboard-check"></i> 2. Uitgifte & Facturatie Controle
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="resultTabsContent">
+            
+            <div class="tab-pane fade show active" id="inv" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card border-danger mb-4">
+                            <div class="card-header bg-danger text-white fw-bold">Niet in Snipe-IT (<span id="cntMiss">0</span>)</div>
+                            <div class="table-container"><table class="table table-sm table-striped"><tbody id="tableMiss"></tbody></table></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-success mb-4">
+                            <div class="card-header bg-success text-white fw-bold">Match Gevonden (<span id="cntMatch">0</span>)</div>
+                            <div class="table-container"><table class="table table-sm table-striped"><tbody id="tableMatch"></tbody></table></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-info mb-4">
+                            <div class="card-header bg-info text-white fw-bold">Alleen in Snipe-IT (<span id="cntGhost">0</span>)</div>
+                            <div class="table-container"><table class="table table-sm table-striped"><tbody id="tableGhost"></tbody></table></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="uit" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card border-danger mb-4">
+                            <div class="card-header bg-danger text-white fw-bold">Helemaal niet gevonden (<span id="cntUitMiss">0</span>)</div>
+                            <div class="table-container"><table class="table table-sm table-striped"><tbody id="tableUitMiss"></tbody></table></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-warning mb-4">
+                            <div class="card-header bg-warning text-dark fw-bold">Snipe-IT vereist actie (<span id="cntUitAfwijking">0</span>)</div>
+                            <div class="table-container">
+                                <table class="table table-sm table-striped">
+                                    <thead class="table-light"><tr><th style="width:15%">Rij</th><th>Apparaat & Fouten</th></tr></thead>
+                                    <tbody id="tableUitAfwijking"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-success mb-4">
+                            <div class="card-header bg-success text-white fw-bold">100% Correct in Snipe (<span id="cntUitPerfect">0</span>)</div>
+                            <div class="table-container"><table class="table table-sm table-striped"><tbody id="tableUitPerfect"></tbody></table></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function uploadFile() {
+    const file = document.getElementById('fileInput').files[0];
+    if(!file) return alert("Selecteer een bestand.");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    document.getElementById('loader').style.display = 'block';
+    document.getElementById('resultsArea').style.display = 'none';
+
+    fetch('/api/upload_check', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loader').style.display = 'none';
+        if(data.status === 'error') return alert(data.message);
+
+        // Algemene alert
+        let uitTxt = data.uitgegeven ? ` | Uitgifte Tab: <b>${data.uitgegeven.totaal_excel}</b>` : '';
+        document.getElementById('summaryAlert').innerHTML = `<b>Database API:</b> ${data.totaal_snipe} Snipe items. <b>Excel:</b> Inventaris Tab: <b>${data.inventaris.totaal_excel}</b>${uitTxt}`;
+
+        // VUL TABBLAD 1: INVENTARIS
+        const fillInv = (id, list, countId, isGhost=false) => {
+            const t = document.getElementById(id); t.innerHTML = '';
+            document.getElementById(countId).innerText = list.length;
+            list.forEach(i => {
+                let badge = i.status ? `<span class="badge bg-secondary badge-status">${i.status}</span>` : '';
+                let details = [];
+                if (i.bedrijf) details.push(`<i class="bi bi-building"></i> ${i.bedrijf}`);
+                if (i.merk || i.model) details.push(`<i class="bi bi-laptop"></i> ${i.merk} ${i.model}`.trim());
+                let xtra = details.length > 0 ? `<span class="extra-info">${details.join(' | ')}</span>` : '';
+
+                t.innerHTML += `<tr>
+                    <td class="align-middle">${isGhost ? '<code>'+i.tag+'</code>' : 'Rij '+i.rij}</td>
+                    <td class="align-middle fw-bold">${i.naam} ${badge} ${xtra}</td>
+                    <td class="align-middle"><small>${i.serial || '-'}</small></td>
+                </tr>`;
+            });
+        };
+        fillInv('tableMiss', data.inventaris.missend, 'cntMiss');
+        fillInv('tableMatch', data.inventaris.gevonden, 'cntMatch');
+        fillInv('tableGhost', data.inventaris.spook, 'cntGhost', true);
+
+        // VUL TABBLAD 2: UITGEGEVEN (Als het tabblad bestond in Excel)
+        if (data.uitgegeven) {
+            document.getElementById('uitgegevenTabItem').style.display = 'block';
+            
+            // Rode lijst (Helemaal niet gevonden)
+            const tUitMiss = document.getElementById('tableUitMiss'); tUitMiss.innerHTML = '';
+            document.getElementById('cntUitMiss').innerText = data.uitgegeven.missend.length;
+            data.uitgegeven.missend.forEach(i => {
+                tUitMiss.innerHTML += `<tr><td>Rij ${i.rij}</td><td><b>${i.naam}</b><span class="extra-info"><i class="bi bi-building"></i> ${i.klant_excel}</span></td></tr>`;
+            });
+
+            // Oranje lijst (Wel gevonden, maar Snipe vereist actie)
+            const tUitAfw = document.getElementById('tableUitAfwijking'); tUitAfw.innerHTML = '';
+            document.getElementById('cntUitAfwijking').innerText = data.uitgegeven.afwijking.length;
+            data.uitgegeven.afwijking.forEach(i => {
+                let badges = i.afwijkingen.map(err => `<span class="badge bg-danger mt-1">${err}</span>`).join(' ');
+                tUitAfw.innerHTML += `
+                    <tr>
+                        <td class="align-middle">Rij ${i.rij}</td>
+                        <td class="align-middle fw-bold">
+                            ${i.naam}<br>
+                            <small class="text-muted"><i class="bi bi-building"></i> Exc: ${i.klant_excel} | Snipe: ${i.snipe_klant || '-'}</small><br>
+                            ${badges}
+                        </td>
+                    </tr>`;
+            });
+
+            // Groene lijst (100% correct in Snipe)
+            const tUitPerf = document.getElementById('tableUitPerfect'); tUitPerf.innerHTML = '';
+            document.getElementById('cntUitPerfect').innerText = data.uitgegeven.perfect.length;
+            data.uitgegeven.perfect.forEach(i => {
+                tUitPerf.innerHTML += `<tr><td>Rij ${i.rij}</td><td><b>${i.naam}</b><span class="extra-info"><i class="bi bi-building"></i> ${i.snipe_klant}</span></td></tr>`;
+            });
+
+        } else {
+            document.getElementById('uitgegevenTabItem').style.display = 'none';
+        }
+
+        document.getElementById('resultsArea').style.display = 'block';
+    });
+}
+</script>
+</body>
+</html>
