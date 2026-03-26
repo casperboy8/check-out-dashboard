@@ -56,7 +56,6 @@ def extreme_clean_company(val):
     return v.strip()
 
 def vind_kolom(headers, prioriteiten):
-    """Zoekt eerst naar een exacte match, daarna naar een gedeeltelijke match."""
     for p in prioriteiten:
         for h in headers:
             if str(h).strip().lower() == p.lower():
@@ -66,6 +65,38 @@ def vind_kolom(headers, prioriteiten):
         for h in headers:
             if p.lower() in str(h).strip().lower():
                 return h
+    return None
+
+def vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids):
+    def is_actief(a):
+        # We beschouwen een apparaat pas als "Actief" als hij niet in de prullenbak 
+        # ligt en niet officieel als Archived staat aangemerkt.
+        if a.get('deleted_at'): return False
+        if a.get('status_label', {}).get('type') == 'archived': return False
+        return True
+
+    # STAP 1: Koppel ALTIJD eerst de actieve apparaten
+    if e_s_clean and e_s_clean in by_serial:
+        for a in by_serial[e_s_clean]:
+            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+    if e_n_clean and e_n_clean in by_name:
+        for a in by_name[e_n_clean]:
+            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+    if e_n_clean and e_n_clean in by_tag:
+        for a in by_tag[e_n_clean]:
+            if a['id'] not in gekoppelde_ids and is_actief(a): return a
+
+    # STAP 2: Fallback voor als alleen nog een oud/afgeschreven apparaat over is
+    if e_s_clean and e_s_clean in by_serial:
+        for a in by_serial[e_s_clean]:
+            if a['id'] not in gekoppelde_ids: return a
+    if e_n_clean and e_n_clean in by_name:
+        for a in by_name[e_n_clean]:
+            if a['id'] not in gekoppelde_ids: return a
+    if e_n_clean and e_n_clean in by_tag:
+        for a in by_tag[e_n_clean]:
+            if a['id'] not in gekoppelde_ids: return a
+            
     return None
 
 def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
@@ -91,17 +122,7 @@ def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
         e_n_clean = super_clean(excel_naam)
         e_s_clean = super_clean(excel_serial)
         
-        match_gevonden = None
-
-        if e_s_clean and e_s_clean in by_serial:
-            for a in by_serial[e_s_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
-        if not match_gevonden and e_n_clean and e_n_clean in by_name:
-            for a in by_name[e_n_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
-        if not match_gevonden and e_n_clean and e_n_clean in by_tag:
-            for a in by_tag[e_n_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
+        match_gevonden = vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids)
 
         item_info = {
             "rij": index + 2, 
@@ -132,10 +153,10 @@ def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
 
     spook_lijst = []
     for asset in snipe_assets:
-        if asset['id'] not in gekoppelde_ids:
+        # HIDE DELETED ASSETS FROM SPOOKLIJST: Je wil geen verwijderde items als spook zien
+        if asset['id'] not in gekoppelde_ids and not asset.get('deleted_at'):
             status_label = asset.get('status_label')
             status_naam = status_label.get('name', 'Geen status') if status_label else 'Geen status'
-            if asset.get('deleted_at'): status_naam = "Verwijderd"
             s_company = asset.get('company', {})
             s_manufacturer = asset.get('manufacturer', {})
             s_model_data = asset.get('model', {})
@@ -164,7 +185,7 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
     n_col = vind_kolom(headers, ['naam', 'pc-naam', 'endpoint', 'asset'])
     s_col = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
     k_col = vind_kolom(headers, ['klant', 'company', 'bedrijf', 'relatie', 'tenant'])
-    f_col = vind_kolom(headers, ['gefactureerd?', 'gefactureerd', 'fact', 'betaald'])
+    f_col = vind_kolom(headers, ['gefactureerd?', 'gefactureerd', 'factuur', 'betaald'])
 
     perfect_lijst = []
     afwijking_lijst = []
@@ -185,16 +206,7 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
         e_n_clean = super_clean(val_naam)
         e_s_clean = super_clean(val_serial)
         
-        match_gevonden = None
-        if e_s_clean and e_s_clean in by_serial:
-            for a in by_serial[e_s_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
-        if not match_gevonden and e_n_clean and e_n_clean in by_name:
-            for a in by_name[e_n_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
-        if not match_gevonden and e_n_clean and e_n_clean in by_tag:
-            for a in by_tag[e_n_clean]:
-                if a['id'] not in gekoppelde_ids: match_gevonden = a; break
+        match_gevonden = vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids)
 
         item_info = {
             "rij": index + 2,
@@ -231,7 +243,8 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
                     if isinstance(v, dict):
                         field_name = str(v.get('field', '')).lower()
                         k_lower = str(k).lower()
-                        if 'fact' in k_lower or 'gefactureerd' in k_lower or 'fact' in field_name or 'gefactureerd' in field_name:
+                        # Strict check, voorkomt false positives op 'Manufacturer'
+                        if 'gefactureerd' in k_lower or 'factuur' in k_lower or 'gefactureerd' in field_name or 'factuur' in field_name:
                             v_val = str(v.get('value')).lower().strip()
                             if v_val in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']:
                                 snipe_gefactureerd_bool = True
