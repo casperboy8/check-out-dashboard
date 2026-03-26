@@ -4,11 +4,15 @@ import config
 import re
 import io
 
+# ==============================================================================
+# STAP 1: SNIPE-IT DATA OPHALEN
+# ==============================================================================
+
 def haal_snipe_assets_op():
     alle_assets = []
     geziene_ids = set()
     api_filters = ["", "&deleted=true"]
-    
+
     try:
         status_url = f"{config.BASE_URL}/statuslabels"
         s_resp = requests.get(status_url, headers=config.headers, timeout=10)
@@ -16,7 +20,7 @@ def haal_snipe_assets_op():
             for label in s_resp.json().get('rows', []):
                 if label.get('type') == 'archived':
                     api_filters.append(f"&status_id={label['id']}")
-    except Exception as e:
+    except Exception:
         pass
 
     for api_filter in api_filters:
@@ -26,50 +30,103 @@ def haal_snipe_assets_op():
             try:
                 url = f"{config.HARDWARE_URL}?limit={limit}&offset={offset}&sort=id&order=asc{api_filter}"
                 response = requests.get(url, headers=config.headers, timeout=30)
-                if response.status_code != 200: break
-                
+                if response.status_code != 200:
+                    break
                 data = response.json()
                 rows = data.get('rows', [])
-                if not rows: break
-                
+                if not rows:
+                    break
                 for asset in rows:
                     if asset['id'] not in geziene_ids:
                         geziene_ids.add(asset['id'])
                         alle_assets.append(asset)
-                        
                 offset += limit
-                if offset >= data.get('total', 0): break
-            except:
+                if offset >= data.get('total', 0):
+                    break
+            except Exception:
                 break
-                
+
     return alle_assets
 
 
+# ==============================================================================
+# STAP 2: HULPFUNCTIES
+# ==============================================================================
+
 def super_clean(val):
-    """Verwijder alles behalve letters en cijfers, lowercase."""
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    """Stript alles behalve letters en cijfers, maakt lowercase."""
+    if val is None:
         return ""
+    if isinstance(val, float):
+        if pd.isna(val):
+            return ""
     return re.sub(r'[^a-z0-9]', '', str(val).lower().strip())
 
 
-def herstel_serial_uit_float(val):
+def herstel_serial(val):
     """
-    Excel slaat serienummers soms op als float (bijv. 2.07E+11).
-    Dit converteert dat terug naar een heel getal string.
+    Herstelt door Excel gecorrumpeerde serienummers:
+      - Wetenschappelijke notatie: 2.44E+11 -> '244000000000'
+      - Afgekapt .0 suffix: '12345.0' -> '12345'
+    Noot: afgeknipte voorloopnullen (0487... -> 487...) kunnen NIET
+    automatisch hersteld worden. Naam-first matching vangt die gevallen op.
     """
-    if val is None or (isinstance(val, float) and pd.isna(val)):
+    if val is None:
         return ""
     s = str(val).strip()
-    # Detecteer wetenschappelijke notatie (bijv. 2.07E+11 of 2.07e+11)
+    if not s or s.lower() == 'nan':
+        return ""
     if re.match(r'^-?\d+(\.\d+)?[eE][+\-]?\d+$', s):
         try:
             return str(int(float(s)))
-        except:
+        except Exception:
             pass
-    # Verwijder .0 achtervoegsel dat Excel toevoegt bij nummers
     if re.match(r'^\d+\.0$', s):
         return s[:-2]
     return s
+
+
+def is_actief_asset(asset):
+    """
+    Actief = niet verwijderd EN niet gearchiveerd/undeployable.
+    Verwijderde assets worden NOOIT als primaire match gebruikt.
+    """
+    if asset.get('deleted_at'):
+        return False
+    status_label = asset.get('status_label')
+    if isinstance(status_label, dict):
+        meta = str(status_label.get('status_meta', '')).lower()
+        if meta in ['archived', 'undeployable']:
+            return False
+    return True
+
+
+def is_valid_serial(s):
+    if not s or len(s) < 3:
+        return False
+    slechte_waarden = ['geen', 'nvt', 'na', 'tba', 'onbekend', 'niet', 'missing',
+                       'tobefilled', 'defaultstring', 'unknown', 'none']
+    return not any(bad in s for bad in slechte_waarden)
+
+
+def is_valid_name(n):
+    if not n or len(n) < 2:
+        return False
+    return n not in ['geennaam', 'onbekend', 'unknown']
+
+
+def vind_kolom(headers, prioriteiten):
+    for p in prioriteiten:
+        for h in headers:
+            if str(h).strip().lower() == p.lower():
+                return h
+    for p in prioriteiten:
+        if len(p) <= 3:
+            continue
+        for h in headers:
+            if p.lower() in str(h).strip().lower():
+                return h
+    return None
 
 
 def extreme_clean_company(val):
@@ -80,323 +137,336 @@ def extreme_clean_company(val):
     return v.strip()
 
 
-def is_valid_serial(s_clean):
-    if not s_clean: return False
-    if len(s_clean) < 3: return False
-    bad_words = ['geen', 'nvt', 'na', 'tba', 'onbekend', 'niet', 'missing']
-    if any(b in s_clean for b in bad_words): return False
-    return True
-
-
-def is_valid_name(n_clean):
-    if not n_clean: return False
-    if len(n_clean) < 2: return False
-    bad_words = ['geennaam', 'onbekend']
-    if any(b in n_clean for b in bad_words): return False
-    return True
-
-
-def vind_kolom(headers, prioriteiten):
-    for p in prioriteiten:
-        for h in headers:
-            if str(h).strip().lower() == p.lower():
-                return h
-    for p in prioriteiten:
-        if len(p) <= 3: continue
-        for h in headers:
-            if p.lower() in str(h).strip().lower():
-                return h
-    return None
-
-
-def is_actief_asset(a):
-    if a.get('deleted_at'): return False
-    status_label = a.get('status_label')
-    if isinstance(status_label, dict):
-        meta = str(status_label.get('status_meta', '')).lower()
-        if meta in ['archived', 'undeployable']:
-            return False
-    return True
-
-
-def genereer_naam_varianten(naam_raw):
+def naam_varianten(naam_raw):
     """
-    Genereer meerdere 'schone' varianten van een naam om robuuster te matchen.
-    Bijv: "AF-01-Peter" → ["af01peter", "af-01-peter", ...]
-    
-    Retourneert een set van cleaned strings om tegen te matchen.
+    Genereert meerdere genormaliseerde varianten van een naam om
+    notatie-verschillen op te vangen:
+      'AF-01-Peter' -> {'af01peter', 'af-01-peter', 'af01-peter', ...}
+      'TT-11'       -> {'tt11', 'tt-11'}
     """
     if not naam_raw:
         return set()
-    
     naam = str(naam_raw).strip()
     varianten = set()
-    
-    # Variant 1: alles weg behalve letters+cijfers (huidige super_clean)
-    varianten.add(super_clean(naam))
-    
-    # Variant 2: lowercase, streepjes behouden maar spaties weg
-    varianten.add(re.sub(r'\s+', '', naam.lower()))
-    
-    # Variant 3: lowercase, spaties vervangen door streepje
-    varianten.add(naam.lower().replace(' ', '-'))
-    
-    # Variant 4: lowercase, alles vervangen door underscore → dan super_clean
-    varianten.add(super_clean(naam.replace('_', '-')))
-    
-    # Verwijder lege strings
+    varianten.add(super_clean(naam))                          # geen leestekens
+    varianten.add(re.sub(r' +', '', naam.lower()))            # spaties weg
+    varianten.add(naam.lower().replace(' ', '-'))             # spatie -> streepje
+    varianten.add(super_clean(naam.replace('_', '-')))        # underscore als streepje
     varianten.discard('')
     return varianten
 
 
-def vind_beste_match(e_s_clean, e_n_clean, naam_varianten, by_serial, by_name, by_tag, gekoppelde_ids):
-    """
-    Verbeterde matching met meerdere naam-varianten en serial-herstel.
-    Prioriteit:
-      1. Perfect match (naam + serial kloppen allebei)
-      2. Naam match (elke variant)
-      3. Asset tag match (elke variant)
-      4. Serial match
-      5. Fallbacks voor gearchiveerde/verwijderde items
-    """
-    valid_s = is_valid_serial(e_s_clean)
-    valid_n = is_valid_name(e_n_clean)
+# ==============================================================================
+# STAP 3: ZOEKINDEX BOUWEN
+# Actieve en inactieve assets worden APART geindexeerd.
+# Actief krijgt altijd voorrang; inactief is alleen een laatste redmiddel.
+# ==============================================================================
 
-    # --- STAP 1: PERFECTE MATCH (naam + serial) ---
-    if valid_s and valid_n:
-        for variant in naam_varianten:
-            if variant in by_name:
-                for a in by_name[variant]:
-                    if a['id'] not in gekoppelde_ids and is_actief_asset(a):
-                        a_serial = super_clean(a.get('serial', ''))
-                        if a_serial == e_s_clean:
-                            return a
+def bouw_zoek_index(snipe_assets):
+    by_name_actief   = {}
+    by_name_alles    = {}
+    by_tag_actief    = {}
+    by_tag_alles     = {}
+    by_serial_actief = {}
+    by_serial_alles  = {}
 
-    # --- STAP 2: NAAM MATCH (alle varianten, actieve assets eerst) ---
-    if valid_n:
-        for variant in naam_varianten:
-            if variant in by_name:
-                for a in by_name[variant]:
-                    if a['id'] not in gekoppelde_ids and is_actief_asset(a):
-                        return a
+    negeer_serials_clean = {super_clean(x) for x in config.NEGEER_SERIALS}
 
-    # --- STAP 3: ASSET TAG MATCH (alle varianten) ---
-    if valid_n:
-        for variant in naam_varianten:
-            if variant in by_tag:
-                for a in by_tag[variant]:
-                    if a['id'] not in gekoppelde_ids and is_actief_asset(a):
-                        return a
+    def voeg_toe(index, sleutel, asset):
+        if sleutel not in index:
+            index[sleutel] = []
+        if not any(a['id'] == asset['id'] for a in index[sleutel]):
+            index[sleutel].append(asset)
 
-    # --- STAP 4: SERIAL MATCH ---
-    if valid_s and e_s_clean in by_serial:
-        for a in by_serial[e_s_clean]:
-            if a['id'] not in gekoppelde_ids and is_actief_asset(a):
-                return a
+    for asset in snipe_assets:
+        actief = is_actief_asset(asset)
 
-    # --- FALLBACKS (gearchiveerde/verwijderde items) ---
-    if valid_n:
-        for variant in naam_varianten:
-            if variant in by_name:
-                for a in by_name[variant]:
+        for variant in naam_varianten(asset.get('name', '')):
+            if is_valid_name(variant):
+                voeg_toe(by_name_alles, variant, asset)
+                if actief:
+                    voeg_toe(by_name_actief, variant, asset)
+
+        for variant in naam_varianten(asset.get('asset_tag', '')):
+            if is_valid_name(variant):
+                voeg_toe(by_tag_alles, variant, asset)
+                if actief:
+                    voeg_toe(by_tag_actief, variant, asset)
+
+        serial_clean = super_clean(herstel_serial(asset.get('serial', '')))
+        if is_valid_serial(serial_clean) and serial_clean not in negeer_serials_clean:
+            voeg_toe(by_serial_alles, serial_clean, asset)
+            if actief:
+                voeg_toe(by_serial_actief, serial_clean, asset)
+
+    return (by_name_actief, by_name_alles,
+            by_tag_actief,  by_tag_alles,
+            by_serial_actief, by_serial_alles)
+
+
+# ==============================================================================
+# STAP 4: MATCHING LOGICA
+#
+# NAAM IS KONING. Volgorde:
+#
+#   Ronde 1 (alleen ACTIEVE assets):
+#     1a. Naam match    <- altijd eerst, ook als serial fout is
+#     1b. Tag match
+#     1c. Serial match
+#
+#   Ronde 2 (fallback naar INACTIEVE/VERWIJDERDE assets):
+#     2a. Naam match
+#     2b. Tag match
+#     2c. Serial match
+#
+# Dit lost het TT-11 probleem op: actief TT-11 wordt gevonden op naam,
+# ook al klopt het serienummer in Excel niet. De verwijderde TT-11 in de
+# prullenbak wordt NOOIT als primaire match gekozen.
+# ==============================================================================
+
+def vind_beste_match(e_s_clean, e_n_varianten, gekoppelde_ids,
+                     by_name_actief, by_name_alles,
+                     by_tag_actief,  by_tag_alles,
+                     by_serial_actief, by_serial_alles):
+
+    valid_s     = is_valid_serial(e_s_clean)
+    heeft_namen = bool(e_n_varianten)
+
+    def zoek(index, sleutels):
+        for sleutel in sleutels:
+            if sleutel in index:
+                for a in index[sleutel]:
                     if a['id'] not in gekoppelde_ids:
                         return a
-        for variant in naam_varianten:
-            if variant in by_tag:
-                for a in by_tag[variant]:
-                    if a['id'] not in gekoppelde_ids:
-                        return a
-    if valid_s and e_s_clean in by_serial:
-        for a in by_serial[e_s_clean]:
-            if a['id'] not in gekoppelde_ids:
-                return a
+        return None
+
+    # -- Ronde 1: alleen actieve assets --
+    if heeft_namen:
+        match = zoek(by_name_actief, e_n_varianten)
+        if match:
+            return match
+    if heeft_namen:
+        match = zoek(by_tag_actief, e_n_varianten)
+        if match:
+            return match
+    if valid_s:
+        match = zoek(by_serial_actief, [e_s_clean])
+        if match:
+            return match
+
+    # -- Ronde 2: fallback naar inactief/verwijderd --
+    if heeft_namen:
+        match = zoek(by_name_alles, e_n_varianten)
+        if match:
+            return match
+    if heeft_namen:
+        match = zoek(by_tag_alles, e_n_varianten)
+        if match:
+            return match
+    if valid_s:
+        match = zoek(by_serial_alles, [e_s_clean])
+        if match:
+            return match
 
     return None
 
 
-def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
+# ==============================================================================
+# STAP 5: TABBLAD 1 — INVENTARIS CONTROLE ('Lijst geavanceerd')
+# ==============================================================================
+
+def verwerk_inventaris(df, snipe_assets, indexen):
     df = df.fillna('')
     headers = list(df.columns)
-    
-    n_col = vind_kolom(headers, ['pc-naam', 'pc naam', 'naam', 'hostname', 'endpoint', 'apparaat'])
-    s_col = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
-    c_col = vind_kolom(headers, ['company', 'bedrijf', 'klant', 'tenant', 'relatie'])
-    m_col = vind_kolom(headers, ['merk', 'manufacturer', 'fabrikant'])
-    mod_col = vind_kolom(headers, ['modelnummer', 'model'])
-    
+
+    n_col  = vind_kolom(headers, ['pc-naam', 'pc naam', 'naam', 'hostname', 'endpoint', 'apparaat'])
+    s_col  = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
+    c_col  = vind_kolom(headers, ['company', 'bedrijf', 'klant', 'tenant', 'relatie'])
+    m_col  = vind_kolom(headers, ['merk', 'manufacturer', 'fabrikant'])
+    mo_col = vind_kolom(headers, ['modelnummer', 'model'])
+
+    (by_name_actief, by_name_alles,
+     by_tag_actief,  by_tag_alles,
+     by_serial_actief, by_serial_alles) = indexen
+
     gekoppelde_ids = set()
     gevonden_lijst = []
-    missend_lijst = []
-    
-    for index, row in df.iterrows():
-        if all(str(val).strip() == '' for val in row.values): continue
+    missend_lijst  = []
 
-        excel_naam = str(row[n_col]).strip() if n_col else ""
-        excel_serial_raw = str(row[s_col]).strip() if s_col else ""
-        
-        # Herstel floats/wetenschappelijke notatie in serienummer
-        excel_serial = herstel_serial_uit_float(excel_serial_raw)
-        
-        e_n_clean = super_clean(excel_naam)
-        e_s_clean = super_clean(excel_serial)
-        naam_varianten = genereer_naam_varianten(excel_naam)
-        
-        match_gevonden = vind_beste_match(
-            e_s_clean, e_n_clean, naam_varianten,
-            by_serial, by_name, by_tag, gekoppelde_ids
+    for index, row in df.iterrows():
+        if all(str(v).strip() == '' for v in row.values):
+            continue
+
+        excel_naam   = str(row[n_col]).strip() if n_col else ""
+        excel_serial = herstel_serial(str(row[s_col]).strip() if s_col else "")
+
+        e_n_varianten = naam_varianten(excel_naam)
+        e_s_clean     = super_clean(excel_serial)
+
+        match = vind_beste_match(
+            e_s_clean, e_n_varianten, gekoppelde_ids,
+            by_name_actief, by_name_alles,
+            by_tag_actief,  by_tag_alles,
+            by_serial_actief, by_serial_alles
         )
 
         item_info = {
-            "rij": index + 2, 
-            "naam": excel_naam, 
-            "serial": excel_serial,
+            "rij":     index + 2,
+            "naam":    excel_naam,
+            "serial":  excel_serial,
             "bedrijf": str(row[c_col]).strip() if c_col else "",
-            "merk": str(row[m_col]).strip() if m_col else "",
-            "model": str(row[mod_col]).strip() if mod_col else ""
+            "merk":    str(row[m_col]).strip()  if m_col  else "",
+            "model":   str(row[mo_col]).strip() if mo_col else "",
         }
-        
-        if match_gevonden:
-            gekoppelde_ids.add(match_gevonden['id'])
-            s_company = match_gevonden.get('company', {})
-            s_manufacturer = match_gevonden.get('manufacturer', {})
-            s_model_data = match_gevonden.get('model', {})
-            
-            item_info['bedrijf'] = s_company.get('name', '') if s_company else item_info['bedrijf']
-            item_info['merk'] = s_manufacturer.get('name', '') if s_manufacturer else item_info['merk']
-            item_info['model'] = s_model_data.get('name', '') if s_model_data else item_info['model']
 
-            status_label = match_gevonden.get('status_label')
-            item_info['status'] = status_label.get('name', 'Onbekend') if status_label else 'Geen Status'
-            if match_gevonden.get('deleted_at'): item_info['status'] = "Verwijderd"
-                
+        if match:
+            gekoppelde_ids.add(match['id'])
+            item_info['bedrijf'] = (match.get('company') or {}).get('name', '') or item_info['bedrijf']
+            item_info['merk']    = (match.get('manufacturer') or {}).get('name', '') or item_info['merk']
+            item_info['model']   = (match.get('model') or {}).get('name', '') or item_info['model']
+            status_label         = match.get('status_label')
+            item_info['status']  = status_label.get('name', 'Onbekend') if status_label else 'Geen Status'
+            if match.get('deleted_at'):
+                item_info['status'] = "Verwijderd"
             gevonden_lijst.append(item_info)
         else:
             missend_lijst.append(item_info)
 
+    # Spookapparaten: actieve Snipe-IT assets NIET in Excel
     spook_lijst = []
     for asset in snipe_assets:
         if asset['id'] not in gekoppelde_ids and is_actief_asset(asset):
             status_label = asset.get('status_label')
-            status_naam = status_label.get('name', 'Geen status') if status_label else 'Geen status'
-            s_company = asset.get('company', {})
-            s_manufacturer = asset.get('manufacturer', {})
-            s_model_data = asset.get('model', {})
-
             spook_lijst.append({
-                "tag": asset.get('asset_tag'),
-                "naam": asset.get('name') or "[Geen naam]",
-                "serial": asset.get('serial') or "[Geen serial]",
-                "status": status_naam,
-                "bedrijf": s_company.get('name', '') if s_company else "",
-                "merk": s_manufacturer.get('name', '') if s_manufacturer else "",
-                "model": s_model_data.get('name', '') if s_model_data else ""
+                "tag":     asset.get('asset_tag') or "",
+                "naam":    asset.get('name') or "[Geen naam]",
+                "serial":  asset.get('serial') or "[Geen serial]",
+                "status":  status_label.get('name', 'Geen status') if status_label else 'Geen status',
+                "bedrijf": (asset.get('company') or {}).get('name', ''),
+                "merk":    (asset.get('manufacturer') or {}).get('name', ''),
+                "model":   (asset.get('model') or {}).get('name', ''),
             })
 
     return {
         "totaal_excel": len(gevonden_lijst) + len(missend_lijst),
-        "gevonden": gevonden_lijst,
-        "missend": missend_lijst,
-        "spook": spook_lijst
+        "gevonden":     gevonden_lijst,
+        "missend":      missend_lijst,
+        "spook":        spook_lijst,
     }
 
 
-def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
+# ==============================================================================
+# STAP 6: TABBLAD 2 — UITGIFTE & FACTURATIE CONTROLE ('Uitgegeven')
+# ==============================================================================
+
+def verwerk_uitgegeven(df, snipe_assets, indexen):
     df = df.fillna('')
     headers = list(df.columns)
-    
-    n_col = vind_kolom(headers, ['naam', 'pc-naam', 'endpoint', 'asset'])
+
+    n_col = vind_kolom(headers, ['naam', 'pc-naam', 'endpoint', 'asset', 'apparaat'])
     s_col = vind_kolom(headers, ['serienummer', 'serial number', 'serial', 'serie', 'sn'])
     k_col = vind_kolom(headers, ['klant', 'company', 'bedrijf', 'relatie', 'tenant'])
     f_col = vind_kolom(headers, ['gefactureerd?', 'gefactureerd', 'factuur', 'betaald'])
 
-    perfect_lijst = []
+    (by_name_actief, by_name_alles,
+     by_tag_actief,  by_tag_alles,
+     by_serial_actief, by_serial_alles) = indexen
+
+    perfect_lijst   = []
     afwijking_lijst = []
-    missend_lijst = []
-    gekoppelde_ids = set()
+    missend_lijst   = []
+    gekoppelde_ids  = set()
 
     for index, row in df.iterrows():
-        if all(str(val).strip() == '' for val in row.values): continue
-        
-        val_naam = str(row[n_col]).strip() if n_col else ""
-        val_serial_raw = str(row[s_col]).strip() if s_col else ""
-        val_klant = str(row[k_col]).strip() if k_col else ""
-        val_fact = str(row[f_col]).strip().lower() if f_col else ""
-        
-        # Herstel floats/wetenschappelijke notatie in serienummer
-        val_serial = herstel_serial_uit_float(val_serial_raw)
-        
+        if all(str(v).strip() == '' for v in row.values):
+            continue
+
+        val_naam   = str(row[n_col]).strip() if n_col else ""
+        val_serial = herstel_serial(str(row[s_col]).strip() if s_col else "")
+        val_klant  = str(row[k_col]).strip() if k_col else ""
+        val_fact   = str(row[f_col]).strip().lower() if f_col else ""
+
         excel_fact_bool = val_fact in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']
-        str_fact_excel = "Ja" if excel_fact_bool else "Nee"
-        
-        e_n_clean = super_clean(val_naam)
-        e_s_clean = super_clean(val_serial)
-        naam_varianten = genereer_naam_varianten(val_naam)
-        
-        match_gevonden = vind_beste_match(
-            e_s_clean, e_n_clean, naam_varianten,
-            by_serial, by_name, by_tag, gekoppelde_ids
+        str_fact_excel  = "Ja" if excel_fact_bool else "Nee"
+
+        e_n_varianten = naam_varianten(val_naam)
+        e_s_clean     = super_clean(val_serial)
+
+        match = vind_beste_match(
+            e_s_clean, e_n_varianten, gekoppelde_ids,
+            by_name_actief, by_name_alles,
+            by_tag_actief,  by_tag_alles,
+            by_serial_actief, by_serial_alles
         )
 
         item_info = {
-            "rij": index + 2,
-            "naam": val_naam or "[Geen naam]",
-            "serial": val_serial,
+            "rij":         index + 2,
+            "naam":        val_naam or "[Geen naam]",
+            "serial":      val_serial,
             "klant_excel": val_klant,
-            "fact_excel": str_fact_excel
+            "fact_excel":  str_fact_excel,
         }
 
-        if match_gevonden:
-            gekoppelde_ids.add(match_gevonden['id'])
-            
-            snipe_klant = match_gevonden.get('company', {}).get('name', '') if match_gevonden.get('company') else ""
-            
-            assigned_to = match_gevonden.get('assigned_to')
-            status_label = match_gevonden.get('status_label', {})
-            status_meta = str(status_label.get('status_meta', '')).lower()
-            status_naam_str = str(status_label.get('name', '')).lower()
-            
+        if match:
+            gekoppelde_ids.add(match['id'])
+
+            snipe_klant  = (match.get('company') or {}).get('name', '')
+            assigned_to  = match.get('assigned_to')
+            status_label = match.get('status_label') or {}
+            status_meta  = str(status_label.get('status_meta', '')).lower()
+            status_naam  = str(status_label.get('name', '')).lower()
+
             is_uitgecheckt = False
             if assigned_to is not None:
                 is_uitgecheckt = True
             elif status_meta == 'deployed':
                 is_uitgecheckt = True
-            elif any(woord in status_naam_str for woord in ['uitgegeven', 'in gebruik', 'klant']):
+            elif any(w in status_naam for w in ['uitgegeven', 'in gebruik', 'klant']):
                 is_uitgecheckt = True
-            elif status_meta not in ['undeployable', 'archived'] and status_naam_str not in ['in magazijn', 'voorraad', 'besteld', 'klaar voor levering', 'gerepareerd']:
+            elif status_meta not in ['undeployable', 'archived'] and \
+                 status_naam not in ['in magazijn', 'voorraad', 'besteld',
+                                     'klaar voor levering', 'gerepareerd']:
                 is_uitgecheckt = True
-            
-            snipe_gefactureerd_bool = False
-            custom_fields = match_gevonden.get('custom_fields')
+
+            # Gefactureerd-veld: zoek op HELE WOORDEN 'gefactureerd' of 'factuur'
+            # zodat 'manufacturer' en 'form_factor' nooit per ongeluk matchen
+            snipe_gefactureerd = False
+            custom_fields = match.get('custom_fields')
             if isinstance(custom_fields, dict):
                 for k, v in custom_fields.items():
-                    if isinstance(v, dict):
-                        field_name = str(v.get('field', '')).lower()
-                        k_lower = str(k).lower()
-                        if 'gefactureerd' in k_lower or 'factuur' in k_lower or 'gefactureerd' in field_name or 'factuur' in field_name:
-                            v_val = str(v.get('value')).lower().strip()
-                            if v_val in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']:
-                                snipe_gefactureerd_bool = True
-                            break
-            
-            str_fact_snipe = "Ja" if snipe_gefactureerd_bool else "Nee"
-            
+                    if not isinstance(v, dict):
+                        continue
+                    veld_db   = str(v.get('field', '')).lower()
+                    veld_naam = str(k).lower()
+                    if (re.search(r'\bgefactureerd\b', veld_naam) or
+                            re.search(r'\bgefactureerd\b', veld_db) or
+                            re.search(r'\bfactuur\b', veld_naam) or
+                            re.search(r'\bfactuur\b', veld_db)):
+                        v_val = str(v.get('value', '')).lower().strip()
+                        if v_val in ['1', 'yes', 'ja', 'true', 'v', 'x', 'on', 'j', 'y', 'waar']:
+                            snipe_gefactureerd = True
+                        break
+
+            str_fact_snipe = "Ja" if snipe_gefactureerd else "Nee"
+
             afwijkingen = []
-            
-            if extreme_clean_company(val_klant) not in extreme_clean_company(snipe_klant) and extreme_clean_company(snipe_klant) not in extreme_clean_company(val_klant):
-                afwijkingen.append("Klant mismatch")
-                
+            klant_excel_clean = extreme_clean_company(val_klant)
+            klant_snipe_clean = extreme_clean_company(snipe_klant)
+            if klant_excel_clean and klant_snipe_clean:
+                if (klant_excel_clean not in klant_snipe_clean and
+                        klant_snipe_clean not in klant_excel_clean):
+                    afwijkingen.append("Klant mismatch")
             if not is_uitgecheckt:
                 afwijkingen.append("Niet uitgecheckt")
-                
             if str_fact_excel != str_fact_snipe:
                 afwijkingen.append("Factuur mismatch")
-                
+
             item_info['snipe_klant'] = snipe_klant
             item_info['uitgecheckt'] = "Ja" if is_uitgecheckt else "Nee"
-            item_info['fact_snipe'] = str_fact_snipe
+            item_info['fact_snipe']  = str_fact_snipe
             item_info['afwijkingen'] = afwijkingen
-            
-            if len(afwijkingen) > 0:
+
+            if afwijkingen:
                 afwijking_lijst.append(item_info)
             else:
                 perfect_lijst.append(item_info)
@@ -405,87 +475,42 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
 
     return {
         "totaal_excel": len(perfect_lijst) + len(afwijking_lijst) + len(missend_lijst),
-        "perfect": perfect_lijst,
-        "afwijking": afwijking_lijst,
-        "missend": missend_lijst
+        "perfect":      perfect_lijst,
+        "afwijking":    afwijking_lijst,
+        "missend":      missend_lijst,
     }
 
 
-def bouw_zoek_index(snipe_assets):
-    """
-    Bouw zoekindexen op met ALLE naam-varianten per asset,
-    zodat we ook matchen als notaties licht verschillen.
-    """
-    by_serial = {}
-    by_name = {}
-    by_tag = {}
-
-    for asset in snipe_assets:
-        naam_raw = asset.get('name', '')
-        serial_raw = asset.get('serial', '')
-        tag_raw = asset.get('asset_tag', '')
-
-        # --- Serienummer index ---
-        # Herstel ook Snipe-IT serienummers die als float zijn opgeslagen
-        serial_hersteld = herstel_serial_uit_float(serial_raw)
-        s_clean = super_clean(serial_hersteld)
-        if is_valid_serial(s_clean) and s_clean not in [super_clean(x) for x in config.NEGEER_SERIALS]:
-            if s_clean not in by_serial:
-                by_serial[s_clean] = []
-            by_serial[s_clean].append(asset)
-
-        # --- Naam index (alle varianten) ---
-        for variant in genereer_naam_varianten(naam_raw):
-            if is_valid_name(variant):
-                if variant not in by_name:
-                    by_name[variant] = []
-                by_name[variant].append(asset)
-
-        # --- Asset tag index (alle varianten) ---
-        for variant in genereer_naam_varianten(tag_raw):
-            if is_valid_name(variant):
-                if variant not in by_tag:
-                    by_tag[variant] = []
-                by_tag[variant].append(asset)
-
-    return by_serial, by_name, by_tag
-
+# ==============================================================================
+# STAP 7: HOOFDFUNCTIE
+# ==============================================================================
 
 def controleer_upload(file_stream, filename):
     snipe_assets = haal_snipe_assets_op()
-
-    # Gebruik de nieuwe verbeterde index builder
-    by_serial, by_name, by_tag = bouw_zoek_index(snipe_assets)
+    indexen      = bouw_zoek_index(snipe_assets)
 
     result = {
-        "status": "success",
+        "status":       "success",
         "totaal_snipe": len(snipe_assets),
-        "inventaris": None,
-        "uitgegeven": None
+        "inventaris":   None,
+        "uitgegeven":   None,
     }
-    
+
     try:
-        if isinstance(file_stream, bytes):
-            file_bytes = file_stream
-        else:
-            file_bytes = file_stream.read()
-        
+        file_bytes = file_stream if isinstance(file_stream, bytes) else file_stream.read()
+
         if filename.lower().endswith(('.xlsx', '.xls')):
-            xls = pd.ExcelFile(io.BytesIO(file_bytes))
-            
-            if 'Lijst geavanceerd' in xls.sheet_names:
-                df_inv = pd.read_excel(xls, sheet_name='Lijst geavanceerd', dtype=str)
-            else:
-                df_inv = pd.read_excel(xls, sheet_name=0, dtype=str)
-            result["inventaris"] = verwerk_inventaris(df_inv, snipe_assets, by_serial, by_name, by_tag)
-            
+            xls       = pd.ExcelFile(io.BytesIO(file_bytes))
+            sheet_inv = 'Lijst geavanceerd' if 'Lijst geavanceerd' in xls.sheet_names else xls.sheet_names[0]
+            df_inv    = pd.read_excel(xls, sheet_name=sheet_inv, dtype=str)
+            result["inventaris"] = verwerk_inventaris(df_inv, snipe_assets, indexen)
+
             if 'Uitgegeven' in xls.sheet_names:
                 df_uit = pd.read_excel(xls, sheet_name='Uitgegeven', dtype=str)
-                result["uitgegeven"] = verwerk_uitgegeven(df_uit, snipe_assets, by_serial, by_name, by_tag)
-                
+                result["uitgegeven"] = verwerk_uitgegeven(df_uit, snipe_assets, indexen)
         else:
             df_inv = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig', dtype=str)
-            result["inventaris"] = verwerk_inventaris(df_inv, snipe_assets, by_serial, by_name, by_tag)
+            result["inventaris"] = verwerk_inventaris(df_inv, snipe_assets, indexen)
 
         return result
 
