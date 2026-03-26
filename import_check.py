@@ -55,6 +55,20 @@ def extreme_clean_company(val):
             v = v[:-len(suffix)]
     return v.strip()
 
+def is_valid_serial(s_clean):
+    if not s_clean: return False
+    if len(s_clean) < 3: return False
+    bad_words = ['geen', 'nvt', 'na', 'tba', 'onbekend', 'niet', 'missing']
+    if any(b in s_clean for b in bad_words): return False
+    return True
+
+def is_valid_name(n_clean):
+    if not n_clean: return False
+    if len(n_clean) < 2: return False
+    bad_words = ['geennaam', 'onbekend']
+    if any(b in n_clean for b in bad_words): return False
+    return True
+
 def vind_kolom(headers, prioriteiten):
     for p in prioriteiten:
         for h in headers:
@@ -68,37 +82,48 @@ def vind_kolom(headers, prioriteiten):
     return None
 
 def is_actief_asset(a):
-    """Controleert 100% zeker of een apparaat echt actief is (niet verwijderd/afgeschreven)"""
     if a.get('deleted_at'): return False
     status_label = a.get('status_label')
     if isinstance(status_label, dict):
-        # Gebruik de juiste Snipe-IT API sleutel (status_meta in plaats van type)
         meta = str(status_label.get('status_meta', '')).lower()
         if meta in ['archived', 'undeployable']: 
             return False
     return True
 
 def vind_beste_match(e_s_clean, e_n_clean, by_serial, by_name, by_tag, gekoppelde_ids):
-    # STAP 1: Koppel ALTIJD eerst de ACTIEVE apparaten
-    if e_s_clean and e_s_clean in by_serial:
+    valid_s = is_valid_serial(e_s_clean)
+    valid_n = is_valid_name(e_n_clean)
+
+    # 1. PERFECT MATCH (Beide kloppen en zijn geldig)
+    if valid_s and valid_n and e_s_clean in by_serial:
         for a in by_serial[e_s_clean]:
-            if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
-    if e_n_clean and e_n_clean in by_name:
+            if a['id'] not in gekoppelde_ids and is_actief_asset(a) and super_clean(a.get('name')) == e_n_clean:
+                return a
+                
+    # 2. NAAM MATCH (Prioriteit! Negeert E+11, missende nullen en typfouten in serienummers)
+    if valid_n and e_n_clean in by_name:
         for a in by_name[e_n_clean]:
             if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
-    if e_n_clean and e_n_clean in by_tag:
+            
+    # 3. TAG MATCH
+    if valid_n and e_n_clean in by_tag:
         for a in by_tag[e_n_clean]:
             if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
 
-    # STAP 2: Fallback voor als er alleen nog een oud/afgeschreven apparaat in Snipe-IT zwerft
-    if e_s_clean and e_s_clean in by_serial:
+    # 4. SERIENUMMER MATCH
+    if valid_s and e_s_clean in by_serial:
         for a in by_serial[e_s_clean]:
-            if a['id'] not in gekoppelde_ids: return a
-    if e_n_clean and e_n_clean in by_name:
+            if a['id'] not in gekoppelde_ids and is_actief_asset(a): return a
+
+    # FALLBACKS voor afgeschreven/verwijderde apparaten
+    if valid_n and e_n_clean in by_name:
         for a in by_name[e_n_clean]:
             if a['id'] not in gekoppelde_ids: return a
-    if e_n_clean and e_n_clean in by_tag:
+    if valid_n and e_n_clean in by_tag:
         for a in by_tag[e_n_clean]:
+            if a['id'] not in gekoppelde_ids: return a
+    if valid_s and e_s_clean in by_serial:
+        for a in by_serial[e_s_clean]:
             if a['id'] not in gekoppelde_ids: return a
             
     return None
@@ -157,7 +182,7 @@ def verwerk_inventaris(df, snipe_assets, by_serial, by_name, by_tag):
 
     spook_lijst = []
     for asset in snipe_assets:
-        # Als hij niet gematcht is én het is een ACTIEF apparaat, toon hem dan als spook
+        # Toon alleen ACTIEVE niet-gekoppelde items in de spooklijst
         if asset['id'] not in gekoppelde_ids and is_actief_asset(asset):
             status_label = asset.get('status_label')
             status_naam = status_label.get('name', 'Geen status') if status_label else 'Geen status'
@@ -237,7 +262,7 @@ def verwerk_uitgegeven(df, snipe_assets, by_serial, by_name, by_tag):
                 is_uitgecheckt = True
             elif any(woord in status_naam_str for woord in ['uitgegeven', 'in gebruik', 'klant']):
                 is_uitgecheckt = True
-            elif status_meta not in ['undeployable', 'archived'] and status_naam_str not in ['in magazijn', 'voorraad', 'besteld', 'klaar voor levering']:
+            elif status_meta not in ['undeployable', 'archived'] and status_naam_str not in ['in magazijn', 'voorraad', 'besteld', 'klaar voor levering', 'gerepareerd']:
                 is_uitgecheckt = True
             
             snipe_gefactureerd_bool = False
@@ -292,18 +317,19 @@ def controleer_upload(file_stream, filename):
     by_name = {}
     by_tag = {}
     
+    # We vullen de zoekbakken NU alleen nog maar met GELDIGE data
     for asset in snipe_assets:
         n_clean = super_clean(asset.get('name'))
         s_clean = super_clean(asset.get('serial'))
         t_clean = super_clean(asset.get('asset_tag'))
 
-        if s_clean and s_clean not in [super_clean(x) for x in config.NEGEER_SERIALS]:
+        if is_valid_serial(s_clean) and s_clean not in [super_clean(x) for x in config.NEGEER_SERIALS]:
             if s_clean not in by_serial: by_serial[s_clean] = []
             by_serial[s_clean].append(asset)
-        if n_clean:
+        if is_valid_name(n_clean):
             if n_clean not in by_name: by_name[n_clean] = []
             by_name[n_clean].append(asset)
-        if t_clean:
+        if is_valid_name(t_clean):
             if t_clean not in by_tag: by_tag[t_clean] = []
             by_tag[t_clean].append(asset)
 
