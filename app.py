@@ -14,9 +14,13 @@ import import_check
 app = Flask(__name__)
 
 # ==========================================
-# TARIEVEN OPSLAG LOGICA (JSON BESTAND)
+# TARIEVEN OPSLAG (NU VEILIG IN /DATA MAP)
 # ==========================================
-TARIEVEN_FILE = 'tarieven.json'
+# Zorg dat de data map bestaat als de app opstart
+if not os.path.exists('data'):
+    os.makedirs('data')
+
+TARIEVEN_FILE = 'data/tarieven.json'
 
 def laad_tarieven():
     if os.path.exists(TARIEVEN_FILE):
@@ -32,7 +36,7 @@ def bewaar_tarieven(tarieven_dict):
         json.dump(tarieven_dict, f, indent=4)
 
 # ==========================================
-# ACHTERGROND WERKPROCESS (BACKGROUND WORKER)
+# ACHTERGROND WERKPROCESS
 # ==========================================
 def start_achtergrond_taken():
     def updater():
@@ -42,7 +46,7 @@ def start_achtergrond_taken():
                 snipe_api.haal_checkouts_op(force_refresh=True)
                 snipe_api.haal_klanten_filters_op(force_refresh=True)
             except Exception as e:
-                print(f"Let op: Fout in achtergrondtaak: {e}")
+                pass
             time.sleep(60)
             
     thread = threading.Thread(target=updater, daemon=True)
@@ -86,8 +90,7 @@ def api_get_cached_sync():
 
 @app.route('/api/run_sync_scan', methods=['GET'])
 def api_run_sync_scan():
-    result = action1_sync.voer_sync_scan_uit()
-    return jsonify(result)
+    return jsonify(action1_sync.voer_sync_scan_uit())
 
 @app.route('/api/apply_sync_fixes', methods=['POST'])
 def api_apply_sync_fixes():
@@ -187,8 +190,7 @@ def api_get_klant_inventaris():
     company_id = data.get('company_id')
     category_id = data.get('category_id')
 
-    if not company_id:
-        return jsonify({"status": "error", "message": "Geen klant geselecteerd."})
+    if not company_id: return jsonify({"status": "error", "message": "Geen klant geselecteerd."})
 
     alle_assets = []
     offset = 0
@@ -208,20 +210,23 @@ def api_get_klant_inventaris():
         offset += limit
 
     inventaris = {}
-    totaal_aantal = 0
+    tarieven = laad_tarieven()
 
     for asset in alle_assets:
         cat_name = asset.get('category', {}).get('name', 'Onbekend') if asset.get('category') else 'Onbekend'
         model_name = asset.get('model', {}).get('name', 'Onbekend') if asset.get('model') else 'Onbekend'
 
+        # FIX: Sla alles zonder facturatie-prijs direct over!
+        if float(tarieven.get(cat_name, 0.0)) <= 0:
+            continue
+
         if cat_name not in inventaris: inventaris[cat_name] = {}
         if model_name not in inventaris[cat_name]: inventaris[cat_name][model_name] = 0
         
         inventaris[cat_name][model_name] += 1
-        totaal_aantal += 1
 
-    tarieven = laad_tarieven()
     totale_maandkosten = 0.0
+    totaal_aantal = 0
     resultaat_lijst = []
     categorie_samenvatting = {}
 
@@ -233,6 +238,7 @@ def api_get_klant_inventaris():
             regel_totaal = prijs_per_stuk * count
             totale_maandkosten += regel_totaal
             cat_totaal_aantal += count
+            totaal_aantal += count
             resultaat_lijst.append({
                 "categorie": cat, 
                 "model": mod, 
@@ -258,7 +264,6 @@ def api_get_klant_inventaris():
 
 @app.route('/api/get_alle_klanten_facturatie', methods=['GET'])
 def api_get_alle_klanten_facturatie():
-    """Haalt alle assets op en maakt een facturatie-samenvatting per klant."""
     alle_assets = []
     offset = 0
     limit = 1000
@@ -276,16 +281,20 @@ def api_get_alle_klanten_facturatie():
     klant_data = {}
 
     for asset in alle_assets:
-        # Negeer apparaten die in Snipe-IT daadwerkelijk als afgeschreven/defect staan
         status_meta = str(asset.get('status_label', {}).get('status_meta', '')).lower()
         if status_meta in ['archived', 'undeployable']:
             continue
 
-        comp = asset.get('company')
-        comp_name = comp.get('name') if comp else "Zonder Klant / Intern"
-        
         cat = asset.get('category')
         cat_name = cat.get('name') if cat else "Onbekend"
+        prijs_per_stuk = float(tarieven.get(cat_name, 0.0))
+
+        # FIX: Sla alles zonder facturatie-prijs direct over!
+        if prijs_per_stuk <= 0:
+            continue
+
+        comp = asset.get('company')
+        comp_name = comp.get('name') if comp else "Zonder Klant / Intern"
         
         if comp_name not in klant_data:
             klant_data[comp_name] = {"totaal_apparaten": 0, "totale_kosten": 0.0, "categorieen": {}}
@@ -295,11 +304,10 @@ def api_get_alle_klanten_facturatie():
             
         klant_data[comp_name]["categorieen"][cat_name] += 1
         klant_data[comp_name]["totaal_apparaten"] += 1
-        klant_data[comp_name]["totale_kosten"] += float(tarieven.get(cat_name, 0.0))
+        klant_data[comp_name]["totale_kosten"] += prijs_per_stuk
 
     resultaat = []
     for klant, data in klant_data.items():
-        # Creëer de textuele samenvatting (bijv. 5x Laptops, 10x Desktops)
         cat_str_list = []
         gesorteerde_cats = sorted(data["categorieen"].items(), key=lambda item: item[1], reverse=True)
         for c, count in gesorteerde_cats:
@@ -320,25 +328,20 @@ def api_get_alle_klanten_facturatie():
 # ==========================================
 @app.route('/api/upload_check', methods=['POST'])
 def api_upload_check():
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "Geen bestand geüpload."}), 400
+    if 'file' not in request.files: return jsonify({"status": "error", "message": "Geen bestand geüpload."}), 400
     file = request.files['file']
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "Geen bestand geselecteerd."}), 400
-    if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
-        return jsonify({"status": "error", "message": "Alleen .xlsx, .xls of .csv bestanden zijn toegestaan."}), 400
+    if file.filename == '': return jsonify({"status": "error", "message": "Geen bestand geselecteerd."}), 400
+    if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')): return jsonify({"status": "error", "message": "Alleen .xlsx, .xls of .csv bestanden zijn toegestaan."}), 400
         
     file_bytes = file.read()
-    resultaat = import_check.controleer_upload(file_bytes, file.filename)
-    return jsonify(resultaat)
+    return jsonify(import_check.controleer_upload(file_bytes, file.filename))
 
 @app.route('/api/download_snipe_raw', methods=['GET'])
 def api_download_snipe_raw():
     try:
         assets = import_check.haal_snipe_assets_op()
         return Response(json.dumps(assets, indent=4), mimetype="application/json", headers={"Content-disposition": "attachment; filename=snipe_raw_export.json"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -7,3 +7,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    volumes:
+      # Dit slaat de /app/data map veilig op je Ubuntu server op
+      - ./data:/app/data
