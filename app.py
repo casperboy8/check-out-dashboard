@@ -161,7 +161,6 @@ def api_get_klanten_filters():
 
 @app.route('/api/get_snipe_categories', methods=['GET'])
 def api_get_snipe_categories():
-    """Haalt alle categorieën uit Snipe-IT op voor het instellingen dashboard."""
     try:
         url = f"{config.BASE_URL}/categories"
         resp = requests.get(url, headers=config.headers)
@@ -201,12 +200,9 @@ def api_get_klant_inventaris():
             url += f"&category_id={category_id}"
 
         resp = requests.get(url, headers=config.headers)
-        if resp.status_code != 200:
-            break
-        
+        if resp.status_code != 200: break
         rows = resp.json().get('rows', [])
-        if not rows:
-            break
+        if not rows: break
         
         alle_assets.extend(rows)
         offset += limit
@@ -218,10 +214,8 @@ def api_get_klant_inventaris():
         cat_name = asset.get('category', {}).get('name', 'Onbekend') if asset.get('category') else 'Onbekend'
         model_name = asset.get('model', {}).get('name', 'Onbekend') if asset.get('model') else 'Onbekend'
 
-        if cat_name not in inventaris:
-            inventaris[cat_name] = {}
-        if model_name not in inventaris[cat_name]:
-            inventaris[cat_name][model_name] = 0
+        if cat_name not in inventaris: inventaris[cat_name] = {}
+        if model_name not in inventaris[cat_name]: inventaris[cat_name][model_name] = 0
         
         inventaris[cat_name][model_name] += 1
         totaal_aantal += 1
@@ -229,14 +223,16 @@ def api_get_klant_inventaris():
     tarieven = laad_tarieven()
     totale_maandkosten = 0.0
     resultaat_lijst = []
+    categorie_samenvatting = {}
 
     for cat, modellen in inventaris.items():
-        # Haal de prijs per stuk voor deze categorie op (standaard 0.0)
         prijs_per_stuk = float(tarieven.get(cat, 0.0))
+        cat_totaal_aantal = 0
         
         for mod, count in modellen.items():
             regel_totaal = prijs_per_stuk * count
             totale_maandkosten += regel_totaal
+            cat_totaal_aantal += count
             resultaat_lijst.append({
                 "categorie": cat, 
                 "model": mod, 
@@ -244,6 +240,11 @@ def api_get_klant_inventaris():
                 "prijs_per_stuk": prijs_per_stuk,
                 "totaal_prijs": regel_totaal
             })
+            
+        categorie_samenvatting[cat] = {
+            "aantal": cat_totaal_aantal,
+            "totaal_prijs": cat_totaal_aantal * prijs_per_stuk
+        }
 
     resultaat_lijst = sorted(resultaat_lijst, key=lambda x: (x['categorie'], -x['aantal']))
 
@@ -251,8 +252,68 @@ def api_get_klant_inventaris():
         "status": "success",
         "data": resultaat_lijst,
         "totaal": totaal_aantal,
-        "maandkosten": totale_maandkosten
+        "maandkosten": totale_maandkosten,
+        "samenvatting": categorie_samenvatting
     })
+
+@app.route('/api/get_alle_klanten_facturatie', methods=['GET'])
+def api_get_alle_klanten_facturatie():
+    """Haalt alle assets op en maakt een facturatie-samenvatting per klant."""
+    alle_assets = []
+    offset = 0
+    limit = 1000
+    
+    while True:
+        url = f"{config.HARDWARE_URL}?limit={limit}&offset={offset}"
+        resp = requests.get(url, headers=config.headers)
+        if resp.status_code != 200: break
+        rows = resp.json().get('rows', [])
+        if not rows: break
+        alle_assets.extend(rows)
+        offset += limit
+
+    tarieven = laad_tarieven()
+    klant_data = {}
+
+    for asset in alle_assets:
+        # Negeer apparaten die in Snipe-IT daadwerkelijk als afgeschreven/defect staan
+        status_meta = str(asset.get('status_label', {}).get('status_meta', '')).lower()
+        if status_meta in ['archived', 'undeployable']:
+            continue
+
+        comp = asset.get('company')
+        comp_name = comp.get('name') if comp else "Zonder Klant / Intern"
+        
+        cat = asset.get('category')
+        cat_name = cat.get('name') if cat else "Onbekend"
+        
+        if comp_name not in klant_data:
+            klant_data[comp_name] = {"totaal_apparaten": 0, "totale_kosten": 0.0, "categorieen": {}}
+            
+        if cat_name not in klant_data[comp_name]["categorieen"]:
+            klant_data[comp_name]["categorieen"][cat_name] = 0
+            
+        klant_data[comp_name]["categorieen"][cat_name] += 1
+        klant_data[comp_name]["totaal_apparaten"] += 1
+        klant_data[comp_name]["totale_kosten"] += float(tarieven.get(cat_name, 0.0))
+
+    resultaat = []
+    for klant, data in klant_data.items():
+        # Creëer de textuele samenvatting (bijv. 5x Laptops, 10x Desktops)
+        cat_str_list = []
+        gesorteerde_cats = sorted(data["categorieen"].items(), key=lambda item: item[1], reverse=True)
+        for c, count in gesorteerde_cats:
+            cat_str_list.append(f"{count}x {c}")
+        
+        resultaat.append({
+            "klantnaam": klant,
+            "totaal_apparaten": data["totaal_apparaten"],
+            "totale_kosten": data["totale_kosten"],
+            "samenvatting": ", ".join(cat_str_list)
+        })
+        
+    resultaat = sorted(resultaat, key=lambda x: x['totale_kosten'], reverse=True)
+    return jsonify({"status": "success", "data": resultaat})
 
 # ==========================================
 # FLASK ROUTES (API / IMPORT EN DEBUG)
@@ -261,11 +322,9 @@ def api_get_klant_inventaris():
 def api_upload_check():
     if 'file' not in request.files:
         return jsonify({"status": "error", "message": "Geen bestand geüpload."}), 400
-        
     file = request.files['file']
     if file.filename == '':
         return jsonify({"status": "error", "message": "Geen bestand geselecteerd."}), 400
-        
     if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
         return jsonify({"status": "error", "message": "Alleen .xlsx, .xls of .csv bestanden zijn toegestaan."}), 400
         
