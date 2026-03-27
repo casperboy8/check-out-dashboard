@@ -3,6 +3,7 @@ import requests
 import threading
 import time
 import json
+import os
 
 # Importeer onze eigen opgesplitste bestanden
 import config
@@ -11,6 +12,24 @@ import action1_sync
 import import_check
 
 app = Flask(__name__)
+
+# ==========================================
+# TARIEVEN OPSLAG LOGICA (JSON BESTAND)
+# ==========================================
+TARIEVEN_FILE = 'tarieven.json'
+
+def laad_tarieven():
+    if os.path.exists(TARIEVEN_FILE):
+        try:
+            with open(TARIEVEN_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def bewaar_tarieven(tarieven_dict):
+    with open(TARIEVEN_FILE, 'w') as f:
+        json.dump(tarieven_dict, f, indent=4)
 
 # ==========================================
 # ACHTERGROND WERKPROCESS (BACKGROUND WORKER)
@@ -32,7 +51,7 @@ def start_achtergrond_taken():
 start_achtergrond_taken()
 
 # ==========================================
-# FLASK ROUTES (WEB PAgINA'S)
+# FLASK ROUTES (WEB PAGINA'S)
 # ==========================================
 @app.route('/')
 def index():
@@ -51,6 +70,10 @@ def klanten_dashboard():
 @app.route('/import_dashboard')
 def import_dashboard():
     return render_template('import.html')
+
+@app.route('/instellingen_dashboard')
+def instellingen_dashboard():
+    return render_template('instellingen.html')
 
 # ==========================================
 # FLASK ROUTES (API / ACTION1)
@@ -130,11 +153,34 @@ def bulk_update_status():
     return jsonify({"status": "success", "success_count": success_count, "errors": []})
 
 # ==========================================
-# FLASK ROUTES (API / KLANTEN)
+# FLASK ROUTES (API / KLANTEN & INSTELLINGEN)
 # ==========================================
 @app.route('/api/get_klanten_filters', methods=['GET'])
 def api_get_klanten_filters():
     return jsonify(snipe_api.haal_klanten_filters_op())
+
+@app.route('/api/get_snipe_categories', methods=['GET'])
+def api_get_snipe_categories():
+    """Haalt alle categorieën uit Snipe-IT op voor het instellingen dashboard."""
+    try:
+        url = f"{config.BASE_URL}/categories"
+        resp = requests.get(url, headers=config.headers)
+        if resp.status_code == 200:
+            categories = [c['name'] for c in resp.json().get('rows', [])]
+            return jsonify({"status": "success", "categories": sorted(categories)})
+        return jsonify({"status": "error", "message": "Kon categorieën niet laden."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/api/get_tarieven', methods=['GET'])
+def api_get_tarieven():
+    return jsonify(laad_tarieven())
+
+@app.route('/api/save_tarieven', methods=['POST'])
+def api_save_tarieven():
+    data = request.json
+    bewaar_tarieven(data)
+    return jsonify({"status": "success"})
 
 @app.route('/api/get_klant_inventaris', methods=['POST'])
 def api_get_klant_inventaris():
@@ -180,17 +226,32 @@ def api_get_klant_inventaris():
         inventaris[cat_name][model_name] += 1
         totaal_aantal += 1
 
+    tarieven = laad_tarieven()
+    totale_maandkosten = 0.0
     resultaat_lijst = []
+
     for cat, modellen in inventaris.items():
+        # Haal de prijs per stuk voor deze categorie op (standaard 0.0)
+        prijs_per_stuk = float(tarieven.get(cat, 0.0))
+        
         for mod, count in modellen.items():
-            resultaat_lijst.append({"categorie": cat, "model": mod, "aantal": count})
+            regel_totaal = prijs_per_stuk * count
+            totale_maandkosten += regel_totaal
+            resultaat_lijst.append({
+                "categorie": cat, 
+                "model": mod, 
+                "aantal": count,
+                "prijs_per_stuk": prijs_per_stuk,
+                "totaal_prijs": regel_totaal
+            })
 
     resultaat_lijst = sorted(resultaat_lijst, key=lambda x: (x['categorie'], -x['aantal']))
 
     return jsonify({
         "status": "success",
         "data": resultaat_lijst,
-        "totaal": totaal_aantal
+        "totaal": totaal_aantal,
+        "maandkosten": totale_maandkosten
     })
 
 # ==========================================
@@ -208,19 +269,15 @@ def api_upload_check():
     if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
         return jsonify({"status": "error", "message": "Alleen .xlsx, .xls of .csv bestanden zijn toegestaan."}), 400
         
-    resultaat = import_check.controleer_upload(file, file.filename)
+    file_bytes = file.read()
+    resultaat = import_check.controleer_upload(file_bytes, file.filename)
     return jsonify(resultaat)
 
 @app.route('/api/download_snipe_raw', methods=['GET'])
 def api_download_snipe_raw():
-    """Downloadt de exacte, ruwe JSON array die vanuit Snipe-IT wordt opgevangen."""
     try:
         assets = import_check.haal_snipe_assets_op()
-        return Response(
-            json.dumps(assets, indent=4),
-            mimetype="application/json",
-            headers={"Content-disposition": "attachment; filename=snipe_raw_export.json"}
-        )
+        return Response(json.dumps(assets, indent=4), mimetype="application/json", headers={"Content-disposition": "attachment; filename=snipe_raw_export.json"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

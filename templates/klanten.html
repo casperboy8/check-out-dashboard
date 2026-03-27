@@ -2,14 +2,14 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Dashboard | Klant Overzicht</title>
+    <title>IT Dashboard | Klanten Inventaris</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
         body { background-color: #f8f9fa; }
-        .content-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px;}
+        .content-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
         #loader { display: none; margin-top: 20px; }
+        .total-box { font-size: 1.5em; font-weight: bold; color: #0d6efd; background-color: #e9ecef; padding: 15px; border-radius: 8px; text-align: center; border: 2px solid #dee2e6;}
     </style>
 </head>
 <body>
@@ -17,38 +17,35 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
     <a class="navbar-brand" href="/">IT Dashboard</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
+    <div class="collapse navbar-collapse">
       <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="/">Uitgecheckte Items</a></li>
-        <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Action1 Sync</a></li>
-        <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
-        <li class="nav-item"><a class="nav-link" href="/import_dashboard">CSV Controle</a></li>
-      </u
+        <li class="nav-item"><a class="nav-link" href="/">Checkouts</a></li>
+        <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Sync</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/klanten_dashboard">Klant Inventaris</a></li>
+        <li class="nav-item"><a class="nav-link" href="/import_dashboard">Lijst Controle</a></li>
+        <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li>
+        <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li
+      </ul>
     </div>
   </div>
 </nav>
 
-<div class="container-fluid content-container">
-    <h1 class="mb-4">Klant Inventaris (Assets)</h1>
-
-    <div class="row mb-4 bg-light p-3 rounded border">
+<div class="container content-container">
+    <div class="row mb-4">
         <div class="col-md-5">
-            <label for="companySelect" class="form-label fw-bold">Kies Klant (Bedrijf)</label>
+            <label class="form-label fw-bold">Selecteer Klant:</label>
             <select id="companySelect" class="form-select">
-                <option value="">Laden...</option>
+                <option value="">-- Laden... --</option>
             </select>
         </div>
         <div class="col-md-5">
-            <label for="categorySelect" class="form-label fw-bold">Filter op Categorie</label>
-            <select id="categorySelect" class="form-select">
-                <option value="all">Alle categorieën laden...</option>
+            <label class="form-label fw-bold">Filter op Categorie (Optioneel):</label>
+            <select id="categorySelect" class="form-select" disabled>
+                <option value="all">Alle Categorieën</option>
             </select>
         </div>
         <div class="col-md-2 d-flex align-items-end">
-            <button class="btn btn-primary w-100" onclick="fetchInventory()">
+            <button class="btn btn-primary w-100" onclick="haalInventarisOp()" id="btnZoek" disabled>
                 <i class="bi bi-search"></i> Zoeken
             </button>
         </div>
@@ -56,105 +53,119 @@
 
     <div id="loader" class="text-center">
         <div class="spinner-border text-primary" role="status"></div>
-        <p class="mt-2 text-muted">Gegevens ophalen uit Snipe-IT...</p>
+        <p class="mt-2 text-muted">Inventaris ophalen uit Snipe-IT...</p>
     </div>
 
     <div id="resultsArea" style="display: none;">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0" id="resultTitle">Resultaten</h4>
-            <span class="badge bg-success fs-6" id="totalCountBadge">Totaal: 0</span>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Totaal aantal apparaten: <strong id="totaalApparaten">0</strong>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="total-box">
+                    Maandkosten: <span id="totaleKosten">€ 0,00</span>
+                </div>
+            </div>
         </div>
 
-        <div class="table-responsive">
-            <table class="table table-striped table-hover border">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Categorie</th>
-                        <th>Model / Product</th>
-                        <th style="width: 150px;" class="text-center">Aantal in bezit</th>
-                    </tr>
-                </thead>
-                <tbody id="inventoryTableBody"></tbody>
-            </table>
-        </div>
+        <table class="table table-striped table-hover mt-3">
+            <thead class="table-dark">
+                <tr>
+                    <th>Categorie</th>
+                    <th>Model / Type</th>
+                    <th class="text-center">Aantal</th>
+                    <th class="text-end">Prijs p/s</th>
+                    <th class="text-end">Totaal Prijs</th>
+                </tr>
+            </thead>
+            <tbody id="inventarisBody">
+            </tbody>
+        </table>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Haal de bedrijven en categorieën op zodra de pagina laadt
-    document.addEventListener('DOMContentLoaded', () => {
-        fetch('/api/get_klanten_filters')
-            .then(res => res.json())
-            .then(data => {
-                const compSelect = document.getElementById('companySelect');
-                compSelect.innerHTML = '<option value="" disabled selected>-- Selecteer een klant --</option>';
-                data.companies.forEach(c => {
-                    compSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-                });
+document.addEventListener("DOMContentLoaded", () => {
+    fetch('/api/get_klanten_filters')
+    .then(res => res.json())
+    .then(data => {
+        const compSelect = document.getElementById('companySelect');
+        const catSelect = document.getElementById('categorySelect');
+        
+        compSelect.innerHTML = '<option value="">-- Kies een klant --</option>';
+        data.companies.forEach(c => {
+            compSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+        });
 
-                const catSelect = document.getElementById('categorySelect');
-                catSelect.innerHTML = '<option value="all">Alle categorieën weergeven</option>';
-                data.categories.forEach(c => {
-                    catSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-                });
-            });
+        catSelect.innerHTML = '<option value="all">Alle Categorieën</option>';
+        data.categories.forEach(c => {
+            catSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+        });
+
+        catSelect.disabled = false;
+        document.getElementById('btnZoek').disabled = false;
     });
+});
 
-    function fetchInventory() {
-        const compId = document.getElementById('companySelect').value;
-        const catId = document.getElementById('categorySelect').value;
-        const compName = document.getElementById('companySelect').options[document.getElementById('companySelect').selectedIndex].text;
+function formatPrice(num) {
+    return "€ " + num.toFixed(2).replace('.', ',');
+}
 
-        if (!compId) {
-            alert("Selecteer eerst een klant!");
+function haalInventarisOp() {
+    const compId = document.getElementById('companySelect').value;
+    const catId = document.getElementById('categorySelect').value;
+
+    if(!compId) {
+        alert("Selecteer eerst een klant!");
+        return;
+    }
+
+    document.getElementById('loader').style.display = 'block';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('inventarisBody').innerHTML = '';
+
+    fetch('/api/get_klant_inventaris', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ company_id: compId, category_id: catId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loader').style.display = 'none';
+
+        if(data.status === 'error') {
+            alert(data.message);
             return;
         }
 
-        document.getElementById('resultsArea').style.display = 'none';
-        document.getElementById('loader').style.display = 'block';
+        document.getElementById('totaalApparaten').innerText = data.totaal;
+        document.getElementById('totaleKosten').innerText = formatPrice(data.maandkosten);
 
-        fetch('/api/get_klant_inventaris', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ company_id: compId, category_id: catId })
-        })
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('loader').style.display = 'none';
-            
-            if (data.status === 'error') {
-                alert(data.message);
-                return;
-            }
-
-            document.getElementById('resultTitle').innerText = `Inventaris voor: ${compName}`;
-            document.getElementById('totalCountBadge').innerText = `Totaal: ${data.totaal} apparaten`;
-
-            const tbody = document.getElementById('inventoryTableBody');
-            tbody.innerHTML = '';
-
-            if (data.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">Geen apparatuur gevonden voor deze selectie.</td></tr>';
-            } else {
-                data.data.forEach(item => {
-                    tbody.innerHTML += `
-                        <tr>
-                            <td><span class="badge bg-secondary">${item.categorie}</span></td>
-                            <td class="fw-bold">${item.model}</td>
-                            <td class="text-center fs-5">${item.aantal}</td>
-                        </tr>
-                    `;
-                });
-            }
-
-            document.getElementById('resultsArea').style.display = 'block';
-        })
-        .catch(err => {
-            document.getElementById('loader').style.display = 'none';
-            alert('Netwerkfout bij het ophalen van de inventaris.');
-        });
-    }
+        const tbody = document.getElementById('inventarisBody');
+        if(data.data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Geen apparaten gevonden voor deze klant/filter.</td></tr>';
+        } else {
+            data.data.forEach(item => {
+                let pps = item.prijs_per_stuk > 0 ? formatPrice(item.prijs_per_stuk) : '<span class="text-muted">-</span>';
+                let pt = item.totaal_prijs > 0 ? `<strong>${formatPrice(item.totaal_prijs)}</strong>` : '<span class="text-muted">-</span>';
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span class="badge bg-secondary">${item.categorie}</span></td>
+                        <td>${item.model}</td>
+                        <td class="text-center fw-bold fs-5">${item.aantal}</td>
+                        <td class="text-end">${pps}</td>
+                        <td class="text-end">${pt}</td>
+                    </tr>
+                `;
+            });
+        }
+        document.getElementById('resultsArea').style.display = 'block';
+    });
+}
 </script>
 </body>
 </html>
