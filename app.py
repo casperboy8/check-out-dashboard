@@ -164,43 +164,89 @@ def bulk_update_status():
 def pakbon_dashboard():
     return render_template('pakbon.html')
 
-@app.route('/api/get_klant_assets_raw', methods=['POST'])
-def api_get_klant_assets_raw():
-    """Haalt de rauwe lijst van apparaten op (met serials) voor de pakbon maker."""
+# Voeg deze functies toe aan je app.py (vervang de oude pakbon routes)
+
+@app.route('/pakbon_dashboard')
+def pakbon_dashboard():
+    return render_template('pakbon.html')
+
+@app.route('/api/get_pakbon_data', methods=['POST'])
+def api_get_pakbon_data():
+    """Haalt zowel klant-assets als magazijn-assets op voor de pakbon."""
     data = request.json
     company_id = data.get('company_id')
-    if not company_id: 
-        return jsonify({"status": "error", "message": "Geen klant geselecteerd."})
-
+    
+    # 1. Haal alle assets op (we filteren ze zelf voor snelheid)
     alle_assets = []
     offset = 0
     while True:
-        url = f"{config.HARDWARE_URL}?company_id={company_id}&limit=1000&offset={offset}"
+        url = f"{config.HARDWARE_URL}?limit=500&offset={offset}&sort=id&order=asc"
         resp = requests.get(url, headers=config.headers)
         if resp.status_code != 200: break
         rows = resp.json().get('rows', [])
         if not rows: break
         alle_assets.extend(rows)
-        offset += 1000
+        offset += 500
+        if offset >= resp.json().get('total', 0): break
 
-    actieve_assets = []
+    magazijn_assets = []
+    klant_assets = []
+
     for a in alle_assets:
         status_meta = str(a.get('status_label', {}).get('status_meta', '')).lower()
-        # Negeer apparaten die afgeschreven/defect zijn
+        asset_company = a.get('company', {})
+        asset_company_id = str(asset_company.get('id', '')) if asset_company else ""
+
+        # Alleen inzetbare items (niet gearchiveerd/defect)
         if status_meta not in ['archived', 'undeployable']:
-            actieve_assets.append({
+            item = {
                 "id": a['id'],
                 "name": a.get('name') or 'Naamloos',
                 "asset_tag": a.get('asset_tag') or '',
-                "serial": a.get('serial') or 'Geen serienummer',
+                "serial": a.get('serial') or 'Geen serial',
                 "model": a.get('model', {}).get('name', 'Onbekend') if a.get('model') else 'Onbekend',
                 "category": a.get('category', {}).get('name', 'Onbekend') if a.get('category') else 'Onbekend'
-            })
+            }
+            
+            # Is het al van deze klant?
+            if company_id and asset_company_id == str(company_id):
+                klant_assets.append(item)
+            # Of is het nog vrij in het magazijn?
+            elif not asset_company_id or asset_company_id == "None":
+                magazijn_assets.append(item)
 
-    # Sorteer op categorie en daarna op naam
-    actieve_assets = sorted(actieve_assets, key=lambda x: (x['category'], x['name']))
+    return jsonify({
+        "status": "success", 
+        "klant_assets": sorted(klant_assets, key=lambda x: (x['category'], x['name'])),
+        "magazijn_assets": sorted(magazijn_assets, key=lambda x: (x['category'], x['name']))
+    })
 
-    return jsonify({"status": "success", "data": actieve_assets})
+@app.route('/api/verwerk_pakbon', methods=['POST'])
+def api_verwerk_pakbon():
+    """Koppelt de geselecteerde apparaten aan de gekozen klant in Snipe-IT."""
+    data = request.json
+    company_id = data.get('company_id')
+    asset_ids = data.get('asset_ids', [])
+
+    if not company_id or not asset_ids:
+        return jsonify({"status": "error", "message": "Geen klant of apparaten geselecteerd."})
+
+    success_count = 0
+    for aid in asset_ids:
+        try:
+            # We PATCHEN alleen de company_id, de status blijft hetzelfde!
+            resp = requests.patch(
+                f"{config.HARDWARE_URL}/{aid}", 
+                json={"company_id": company_id}, 
+                headers=config.headers
+            )
+            if resp.status_code == 200:
+                success_count += 1
+        except:
+            pass
+
+    config.clear_cache() # Vernieuw cache zodat wijziging direct zichtbaar is
+    return jsonify({"status": "success", "message": f"{success_count} apparaten gekoppeld aan klant."})
 
 # ==========================================
 # FLASK ROUTES (API / KLANTEN & INSTELLINGEN)

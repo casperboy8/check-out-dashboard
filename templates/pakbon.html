@@ -2,27 +2,25 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <title>IT Dashboard | Pakbon Maken</title>
+    <title>IT Dashboard | Pakbon & Magazijn</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
         body { background-color: #f8f9fa; }
         .content-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
         #loader { display: none; margin-top: 20px; }
+        .badge-magazijn { background-color: #6610f2; color: white; }
         
-        /* Print Styles - Deze maken van de webpagina een strak A4 document */
-        .print-only { display: none; }
         @media print {
-            body { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
-            .no-print, nav, .content-container { display: none !important; box-shadow: none; }
-            .print-only { display: block; padding: 20px; font-family: Arial, sans-serif; }
-            .print-header { display: flex; justify-content: space-between; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
-            .print-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-            .print-table th, .print-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            .print-table th { background-color: #f2f2f2 !important; }
-            .signature-box { display: flex; justify-content: space-between; margin-top: 50px; }
-            .sig-line { width: 45%; border-top: 1px solid #000; padding-top: 5px; text-align: center; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; padding: 20px; }
+            .print-header { display: flex; justify-content: space-between; border-bottom: 2px solid #333; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            .sig-box { display: flex; justify-content: space-between; margin-top: 60px; }
+            .sig-line { width: 40%; border-top: 1px solid #000; text-align: center; padding-top: 5px; }
         }
+        .print-only { display: none; }
     </style>
 </head>
 <body>
@@ -32,59 +30,74 @@
       <div class="container-fluid">
         <a class="navbar-brand" href="/">IT Dashboard</a>
         <div class="collapse navbar-collapse">
-          <ul class="navbar-nav">
-            <li class="nav-item"><a class="nav-link" href="/">Checkouts</a></li>
-            <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Sync</a></li>
-            <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
-            <li class="nav-item"><a class="nav-link" href="/import_dashboard">Lijst Controle</a></li>
-            <li class="nav-item"><a class="nav-link active" href="/pakbon_dashboard">Pakbonnen</a></li>
-            <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li>
-          </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item"><a class="nav-link" href="/">Checkouts</a></li>
+                <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Sync</a></li>
+                <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
+                <li class="nav-item"><a class="nav-link" href="/import_dashboard">Lijst Controle</a></li>
+                <li class="nav-item"><a class="nav-link active" href="/pakbon_dashboard">Pakbonnen</a></li>
+                <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li>
+            </ul>
         </div>
       </div>
     </nav>
 
     <div class="container content-container">
-        <h2 class="mb-4"><i class="bi bi-box-seam"></i> Pakbon Genereren</h2>
-        <div class="row mb-4 bg-light p-3 rounded border">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-box-seam"></i> Pakbon & Magazijn Picker</h2>
+            <button class="btn btn-lg btn-success" onclick="verwerkEnPrint()" id="btnSubmit" disabled>
+                <i class="bi bi-printer"></i> Maak Pakbon & Koppel in Snipe
+            </button>
+        </div>
+
+        <div class="row g-3 mb-4 bg-light p-3 rounded border">
             <div class="col-md-5">
-                <label class="form-label fw-bold">Selecteer Klant:</label>
-                <select id="companySelect" class="form-select" onchange="haalAssetsOp()">
+                <label class="form-label fw-bold">Selecteer Bestemmingsklant:</label>
+                <select id="companySelect" class="form-select" onchange="laadData()">
                     <option value="">-- Laden... --</option>
                 </select>
             </div>
-            <div class="col-md-5">
-                <label class="form-label fw-bold">Referentie / Ticketnummer (Optioneel):</label>
-                <input type="text" id="referentieVeld" class="form-control" placeholder="Bijv. Ticket #1024">
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
-                <button class="btn btn-success w-100" onclick="printPakbon()" id="btnPrint" disabled>
-                    <i class="bi bi-printer"></i> Maak Pakbon
-                </button>
+            <div class="col-md-7">
+                <label class="form-label fw-bold">Opmerking / Referentie:</label>
+                <input type="text" id="refVeld" class="form-control" placeholder="Bijv. Project Uitrol Maart of Ticket #1234">
             </div>
         </div>
 
-        <div id="loader" class="text-center">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Apparaten ophalen...</p>
+        <div id="loader" class="text-center py-5">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">Lijsten synchroniseren...</p>
         </div>
 
-        <div id="resultsArea" style="display: none;">
-            <p class="text-muted">Vink de apparaten aan die je nu fysiek aan het inpakken bent.</p>
-            <div class="table-responsive">
-                <table class="table table-striped table-hover mt-3">
-                    <thead class="table-dark">
+        <div id="listsArea" style="display:none;">
+            <h4 class="text-primary"><i class="bi bi-house-door"></i> Beschikbaar in Magazijn (Toevoegen)</h4>
+            <div class="table-responsive mb-5">
+                <table class="table table-sm table-hover border">
+                    <thead class="table-light">
                         <tr>
-                            <th style="width: 5%">
-                                <input class="form-check-input" type="checkbox" id="checkAll" onchange="toggleAll(this)">
-                            </th>
-                            <th style="width: 15%">Asset Tag</th>
-                            <th style="width: 25%">Naam</th>
-                            <th style="width: 25%">Model</th>
-                            <th style="width: 30%">Serienummer</th>
+                            <th style="width: 40px;"></th>
+                            <th>Categorie</th>
+                            <th>Model</th>
+                            <th>Serienummer</th>
+                            <th>Asset Tag</th>
                         </tr>
                     </thead>
-                    <tbody id="assetsBody"></tbody>
+                    <tbody id="magazijnBody"></tbody>
+                </table>
+            </div>
+
+            <h4 class="text-success"><i class="bi bi-person-check"></i> Reeds bij Klant (Controleren)</h4>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover border">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Categorie</th>
+                            <th>Model</th>
+                            <th>Serienummer</th>
+                            <th>Asset Tag</th>
+                        </tr>
+                    </thead>
+                    <tbody id="klantBody"></tbody>
                 </table>
             </div>
         </div>
@@ -94,147 +107,116 @@
 <div class="print-only">
     <div class="print-header">
         <div>
-            <h2><strong>IT LEVERING (PAKBON)</strong></h2>
-            <p>Datum: <span id="printDatum"></span><br>
-            Referentie: <span id="printRef"></span></p>
+            <h1>PAKBON / LEVERING</h1>
+            <p>Datum: <span id="pDate"></span><br>Ref: <span id="pRef"></span></p>
         </div>
         <div style="text-align: right;">
-            <h4 id="printKlantNaam">KLANTNAAM</h4>
-            <p>Gegenereerd vanuit Asset Management</p>
+            <h3 id="pKlant">KLANTNAAM</h3>
+            <p>Hardware Overdracht</p>
         </div>
     </div>
-
-    <p>Onderstaande hardware is klaargemaakt en geleverd/overgedragen aan de klant.</p>
-
-    <table class="print-table">
+    <p>Hierbij bevestigen wij de levering van onderstaande hardware:</p>
+    <table>
         <thead>
             <tr>
-                <th>Asset Tag</th>
-                <th>Apparaat Naam</th>
+                <th>Omschrijving</th>
                 <th>Model</th>
                 <th>Serienummer</th>
+                <th>Asset Tag</th>
             </tr>
         </thead>
-        <tbody id="printTableBody">
-            </tbody>
+        <tbody id="pTable"></tbody>
     </table>
-
-    <div class="signature-box">
-        <div class="sig-line">
-            <strong>Geleverd door (IT)</strong><br><br><br>
-            Naam / Handtekening
-        </div>
-        <div class="sig-line">
-            <strong>Voor ontvangst akkoord (Klant)</strong><br><br><br>
-            Naam / Handtekening
-        </div>
+    <div class="sig-box">
+        <div class="sig-line">Handtekening IT (Geleverd)</div>
+        <div class="sig-line">Handtekening Klant (Ontvangen)</div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-    fetch('/api/get_klanten_filters')
-    .then(res => res.json())
-    .then(data => {
-        const compSelect = document.getElementById('companySelect');
-        compSelect.innerHTML = '<option value="">-- Kies een klant --</option>';
-        data.companies.forEach(c => {
-            compSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-        });
+    fetch('/api/get_klanten_filters').then(r => r.json()).then(data => {
+        const sel = document.getElementById('companySelect');
+        sel.innerHTML = '<option value="">-- Kies een klant --</option>';
+        data.companies.forEach(c => sel.innerHTML += `<option value="${c.id}">${c.name}</option>`);
     });
 });
 
-let huidigeAssets = [];
+let alles = [];
 
-function haalAssetsOp() {
-    const compId = document.getElementById('companySelect').value;
-    if(!compId) {
-        document.getElementById('resultsArea').style.display = 'none';
-        document.getElementById('btnPrint').disabled = true;
-        return;
-    }
+async function laadData() {
+    const cid = document.getElementById('companySelect').value;
+    if(!cid) return;
 
     document.getElementById('loader').style.display = 'block';
-    document.getElementById('resultsArea').style.display = 'none';
-    document.getElementById('assetsBody').innerHTML = '';
+    document.getElementById('listsArea').style.display = 'none';
 
-    fetch('/api/get_klant_assets_raw', {
+    const res = await fetch('/api/get_pakbon_data', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ company_id: compId })
-    })
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById('loader').style.display = 'none';
-        if(data.status === 'error') return alert(data.message);
+        body: JSON.stringify({ company_id: cid })
+    }).then(r => r.json());
 
-        huidigeAssets = data.data;
-        const tbody = document.getElementById('assetsBody');
-        
-        if(huidigeAssets.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Geen actieve apparaten gevonden voor deze klant.</td></tr>';
-            document.getElementById('btnPrint').disabled = true;
-        } else {
-            huidigeAssets.forEach((item, index) => {
-                tbody.innerHTML += `
-                    <tr>
-                        <td><input class="form-check-input item-check" type="checkbox" value="${index}"></td>
-                        <td><code>${item.asset_tag}</code></td>
-                        <td class="fw-bold">${item.name}</td>
-                        <td>${item.model}</td>
-                        <td class="text-muted">${item.serial}</td>
-                    </tr>
-                `;
-            });
-            document.getElementById('btnPrint').disabled = false;
-        }
-        document.getElementById('resultsArea').style.display = 'block';
-        document.getElementById('checkAll').checked = false;
-    });
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('listsArea').style.display = 'block';
+    document.getElementById('btnSubmit').disabled = false;
+
+    renderTable('magazijnBody', res.magazijn_assets, true);
+    renderTable('klantBody', res.klant_assets, false);
+    
+    alles = [...res.magazijn_assets, ...res.klant_assets];
 }
 
-function toggleAll(source) {
-    const checkboxes = document.querySelectorAll('.item-check');
-    checkboxes.forEach(cb => cb.checked = source.checked);
-}
-
-function printPakbon() {
-    const geselecteerdeIndexes = Array.from(document.querySelectorAll('.item-check:checked')).map(cb => cb.value);
-    
-    if(geselecteerdeIndexes.length === 0) {
-        alert("Vink minimaal één apparaat aan om een pakbon te maken.");
-        return;
-    }
-
-    // Vul de printvelden in
-    const select = document.getElementById('companySelect');
-    document.getElementById('printKlantNaam').innerText = select.options[select.selectedIndex].text;
-    
-    const vandaag = new Date().toLocaleDateString('nl-NL');
-    document.getElementById('printDatum').innerText = vandaag;
-    
-    let ref = document.getElementById('referentieVeld').value;
-    document.getElementById('printRef').innerText = ref ? ref : "Standaard Levering";
-
-    // Vul de print tabel
-    const printTbody = document.getElementById('printTableBody');
-    printTbody.innerHTML = '';
-    
-    geselecteerdeIndexes.forEach(index => {
-        const item = huidigeAssets[index];
-        printTbody.innerHTML += `
+function renderTable(id, data, isMagazijn) {
+    const body = document.getElementById(id);
+    body.innerHTML = data.length ? '' : '<tr><td colspan="5" class="text-center text-muted">Geen items gevonden</td></tr>';
+    data.forEach(item => {
+        body.innerHTML += `
             <tr>
-                <td>${item.asset_tag}</td>
-                <td><strong>${item.name}</strong></td>
-                <td>${item.model}</td>
-                <td>${item.serial}</td>
+                <td><input type="checkbox" class="form-check-input item-check" data-id="${item.id}" data-idx="${alles.length + 999}"></td>
+                <td><span class="badge ${isMagazijn ? 'badge-magazijn' : 'bg-success'}">${item.category}</span></td>
+                <td><strong>${item.name}</strong><br><small class="text-muted">${item.model}</small></td>
+                <td><code>${item.serial}</code></td>
+                <td><small>${item.asset_tag}</small></td>
             </tr>
         `;
     });
+}
 
-    // Roep de browser print dialoog aan (Sla op als PDF of Print direct)
-    window.print();
+async function verwerkEnPrint() {
+    const checks = document.querySelectorAll('.item-check:checked');
+    const ids = Array.from(checks).map(c => c.getAttribute('data-id'));
+    const cid = document.getElementById('companySelect').value;
+
+    if(ids.length === 0) return alert("Kies eerst wat spullen!");
+
+    if(confirm(`We gaan ${ids.length} apparaten koppelen aan deze klant in Snipe-IT. Akkoord?`)) {
+        // 1. Koppel in Snipe-IT
+        const res = await fetch('/api/verwerk_pakbon', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ company_id: cid, asset_ids: ids })
+        }).then(r => r.json());
+
+        // 2. Vul print scherm
+        document.getElementById('pKlant').innerText = document.getElementById('companySelect').options[document.getElementById('companySelect').selectedIndex].text;
+        document.getElementById('pDate').innerText = new Date().toLocaleDateString('nl-NL');
+        document.getElementById('pRef').innerText = document.getElementById('refVeld').value || "Hardware Levering";
+        
+        const pTable = document.getElementById('pTable');
+        pTable.innerHTML = '';
+        
+        // Zoek de volledige info van de geselecteerde items op voor de print
+        ids.forEach(id => {
+            const item = alles.find(a => a.id == id);
+            if(item) {
+                pTable.innerHTML += `<tr><td>${item.category}</td><td>${item.name}</td><td>${item.serial}</td><td>${item.asset_tag}</td></tr>`;
+            }
+        });
+
+        window.print();
+        laadData(); // Ververs de lijsten
+    }
 }
 </script>
 </body>
