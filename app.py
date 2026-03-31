@@ -106,6 +106,8 @@ def api_apply_sync_fixes():
                 resp = requests.patch(f"{config.HARDWARE_URL}/{item['snipe_id']}", json={"name": item['a1_naam']}, headers=config.headers)
             elif actie_type == 'update_serial':
                 resp = requests.patch(f"{config.HARDWARE_URL}/{item['snipe_id']}", json={"serial": item['a1_serial']}, headers=config.headers)
+            elif actie_type == 'update_hardware':
+                resp = requests.patch(f"{config.HARDWARE_URL}/{item['snipe_id']}", json=item['updates'], headers=config.headers)
             elif actie_type == 'create_new':
                 notes = f"Geïmporteerd vanuit Action1 ({item['bron_instantie']}).\nIP: {item.get('address', '')}\nOS: {item.get('OS', '')}"
                 bit = item.get('berekend_bitlocker', '')

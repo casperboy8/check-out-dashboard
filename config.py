@@ -52,3 +52,9 @@ def clear_cache():
 def clear_action1_cache():
     if "action1_sync" in CACHE:
         del CACHE["action1_sync"]
+
+SNIPE_CUSTOM_FIELDS = {
+    "CPU": "_snipeit_cpu_44",
+    "RAM": "_snipeit_werkgeheugen_45",
+    "MAC": "_snipeit_mac_adres_46"
+}

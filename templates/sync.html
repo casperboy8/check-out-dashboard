@@ -50,7 +50,7 @@
     </div>
 
     <div id="resultsArea" style="display: none;">
-        
+
         <div class="card mb-4 border-warning" id="sectie-naam">
             <div class="card-header bg-warning text-dark fw-bold">
                 <i class="bi bi-arrow-left-right"></i> Hernoemde Apparaten (Serienummer gelijk, naam wijkt af)
@@ -77,6 +77,26 @@
             </div>
         </div>
 
+        <div class="card mb-4 border-info" id="sectie-hardware">
+            <div class="card-header bg-info text-dark fw-bold">
+                <i class="bi bi-cpu"></i> Hardware Specificaties Bijwerken (CPU / RAM / MAC)
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">Deze apparaten staan al in Snipe-IT, maar hebben lege of afwijkende hardware velden. Action1 heeft nieuwere informatie.</p>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Instantie</th>
+                            <th>Naam</th>
+                            <th>Te updaten velden</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-hardware"></tbody>
+                </table>
+                <button class="btn btn-info mt-2" onclick="applyFixes('update_hardware')">Hardware specs updaten in Snipe-IT</button>
+            </div>
+        </div>
+
         <div class="card mb-4 border-success" id="sectie-missing">
             <div class="card-header bg-success text-white fw-bold">
                 <i class="bi bi-plus-circle"></i> Ontbrekende Apparaten in Snipe-IT
@@ -100,7 +120,6 @@
 <script>
     let currentScanData = {};
 
-    // Check meteen bij het inladen of er een opgeslagen scan is!
     document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/get_cached_sync')
             .then(res => res.json())
@@ -129,8 +148,7 @@
                     return;
                 }
                 currentScanData = data;
-                
-                // Laat een badge zien met 'Zojuist gescand'
+
                 const nu = new Date();
                 const tijdStr = ("0" + nu.getDate()).slice(-2) + "-" + ("0" + (nu.getMonth() + 1)).slice(-2) + "-" + nu.getFullYear() + " " + ("0" + nu.getHours()).slice(-2) + ":" + ("0" + nu.getMinutes()).slice(-2) + ":" + ("0" + nu.getSeconds()).slice(-2);
                 document.getElementById('lastScanTime').innerText = "Laatste scan: " + tijdStr;
@@ -166,6 +184,21 @@
             document.getElementById('sectie-serial').style.display = 'block';
         } else { document.getElementById('sectie-serial').style.display = 'none'; }
 
+        // Hardware Updates
+        const tHw = document.getElementById('table-hardware');
+        tHw.innerHTML = '';
+        const hwUpdates = currentScanData.hardware_updates || [];
+        if (hwUpdates.length > 0) {
+            hwUpdates.forEach(m => {
+                const velden = Object.keys(m.updates).map(k => {
+                    const label = k.includes('cpu') ? 'CPU' : k.includes('ram') || k.includes('werkgeheugen') ? 'RAM' : 'MAC';
+                    return `<span class="badge bg-secondary me-1">${label}: ${m.updates[k]}</span>`;
+                }).join('');
+                tHw.innerHTML += `<tr><td>${m.bron_instantie}</td><td><b>${m.naam}</b></td><td>${velden}</td></tr>`;
+            });
+            document.getElementById('sectie-hardware').style.display = 'block';
+        } else { document.getElementById('sectie-hardware').style.display = 'none'; }
+
         // Missing Items
         const tMissing = document.getElementById('table-missing');
         tMissing.innerHTML = '';
@@ -177,21 +210,22 @@
         } else { document.getElementById('sectie-missing').style.display = 'none'; }
 
         // Check of alles leeg is
-        if (currentScanData.naam_mismatches.length === 0 && currentScanData.serial_mismatches.length === 0 && currentScanData.ontbrekende_endpoints.length === 0) {
-            document.getElementById('noIssuesMessage').style.display = 'block';
-        } else {
-            document.getElementById('noIssuesMessage').style.display = 'none';
-        }
+        const alleLeeg = (currentScanData.naam_mismatches || []).length === 0
+            && (currentScanData.serial_mismatches || []).length === 0
+            && (currentScanData.ontbrekende_endpoints || []).length === 0
+            && (currentScanData.hardware_updates || []).length === 0;
+        document.getElementById('noIssuesMessage').style.display = alleLeeg ? 'block' : 'none';
     }
 
     function applyFixes(type) {
         if (!confirm('Weet je zeker dat je deze wijzigingen in Snipe-IT wilt doorvoeren?')) return;
-        
+
         document.getElementById('loader').style.display = 'flex';
         let payloadItems = [];
-        
+
         if (type === 'rename') payloadItems = currentScanData.naam_mismatches;
         else if (type === 'update_serial') payloadItems = currentScanData.serial_mismatches;
+        else if (type === 'update_hardware') payloadItems = currentScanData.hardware_updates;
         else if (type === 'create_new') payloadItems = currentScanData.ontbrekende_endpoints;
 
         fetch('/api/apply_sync_fixes', {
@@ -202,7 +236,7 @@
         .then(res => res.json())
         .then(data => {
             alert(`Succesvol ${data.success_count} items verwerkt!`);
-            startScan(); // Automatisch opnieuw scannen
+            startScan();
         })
         .catch(err => {
             document.getElementById('loader').style.display = 'none';
