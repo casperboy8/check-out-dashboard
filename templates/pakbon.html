@@ -14,7 +14,11 @@
         @media print {
             .no-print { display: none !important; }
             .print-only { display: block !important; padding: 20px; }
-            .print-header { display: flex; justify-content: space-between; border-bottom: 2px solid #333; margin-bottom: 20px; }
+            /* De header layout is aangepast voor het logo */
+            .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 15px; }
+            .header-left { display: flex; align-items: center; gap: 20px; }
+            .print-logo { max-height: 80px; width: auto; }
+            
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             .sig-box { display: flex; justify-content: space-between; margin-top: 60px; }
@@ -106,16 +110,21 @@
 
 <div class="print-only">
     <div class="print-header">
-        <div>
-            <h1>PAKBON / LEVERING</h1>
-            <p>Datum: <span id="pDate"></span><br>Ref: <span id="pRef"></span></p>
+        <div class="header-left">
+            <img src="/static/logo.png" alt="Bedrijfslogo" class="print-logo" onerror="this.style.display='none'">
+            <div>
+                <h1 style="margin: 0;">PAKBON / LEVERING</h1>
+                <p style="margin: 5px 0 0 0;">Datum: <span id="pDate"></span><br>Ref: <span id="pRef"></span></p>
+            </div>
         </div>
         <div style="text-align: right;">
-            <h3 id="pKlant">KLANTNAAM</h3>
-            <p>Hardware Overdracht</p>
+            <h3 id="pKlant" style="margin: 0;">KLANTNAAM</h3>
+            <p style="margin: 5px 0 0 0;">Hardware Overdracht</p>
         </div>
     </div>
+    
     <p>Hierbij bevestigen wij de levering van onderstaande hardware:</p>
+    
     <table>
         <thead>
             <tr>
@@ -127,6 +136,7 @@
         </thead>
         <tbody id="pTable"></tbody>
     </table>
+    
     <div class="sig-box">
         <div class="sig-line">Handtekening IT (Geleverd)</div>
         <div class="sig-line">Handtekening Klant (Ontvangen)</div>
@@ -191,14 +201,12 @@ async function verwerkEnPrint() {
     if(ids.length === 0) return alert("Kies eerst wat spullen!");
 
     if(confirm(`We gaan ${ids.length} apparaten koppelen aan deze klant in Snipe-IT. Akkoord?`)) {
-        // 1. Koppel in Snipe-IT
         const res = await fetch('/api/verwerk_pakbon', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ company_id: cid, asset_ids: ids })
         }).then(r => r.json());
 
-        // 2. Vul print scherm
         document.getElementById('pKlant').innerText = document.getElementById('companySelect').options[document.getElementById('companySelect').selectedIndex].text;
         document.getElementById('pDate').innerText = new Date().toLocaleDateString('nl-NL');
         document.getElementById('pRef').innerText = document.getElementById('refVeld').value || "Hardware Levering";
@@ -206,7 +214,6 @@ async function verwerkEnPrint() {
         const pTable = document.getElementById('pTable');
         pTable.innerHTML = '';
         
-        // Zoek de volledige info van de geselecteerde items op voor de print
         ids.forEach(id => {
             const item = alles.find(a => a.id == id);
             if(item) {
@@ -215,7 +222,7 @@ async function verwerkEnPrint() {
         });
 
         window.print();
-        laadData(); // Ververs de lijsten
+        laadData();
     }
 }
 </script>
