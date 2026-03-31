@@ -81,8 +81,16 @@ def api_get_pakbon_data():
 @app.route('/api/verwerk_pakbon', methods=['POST'])
 def api_verwerk_pakbon():
     data = request.json
-    return jsonify(pakbon.verwerk_pakbon(data.get('company_id'), data.get('asset_ids', [])))
+    return jsonify(pakbon.verwerk_pakbon(
+        data.get('company_id'),
+        data.get('klantnaam'),
+        data.get('referentie'),
+        data.get('items', [])
+    ))
 
+@app.route('/api/get_pakbon_geschiedenis', methods=['GET'])
+def api_get_pakbon_geschiedenis():
+    return jsonify({"status": "success", "data": pakbon.haal_geschiedenis_op()})
 # ==========================================
 # FLASK ROUTES (API / ACTION1)
 # ==========================================

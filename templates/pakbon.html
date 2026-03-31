@@ -18,7 +18,6 @@
             .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 15px; }
             .header-left { display: flex; align-items: center; gap: 20px; }
             .print-logo { max-height: 80px; width: auto; }
-            
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             .sig-box { display: flex; justify-content: space-between; margin-top: 60px; }
@@ -49,9 +48,14 @@
     <div class="container content-container">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2><i class="bi bi-box-seam"></i> Pakbon & Magazijn Picker</h2>
-            <button class="btn btn-lg btn-success" onclick="verwerkEnPrint()" id="btnSubmit" disabled>
-                <i class="bi bi-printer"></i> Maak Pakbon & Koppel in Snipe
-            </button>
+            <div>
+                <button class="btn btn-outline-secondary me-2" onclick="openArchief()">
+                    <i class="bi bi-archive"></i> Bekijk Archief
+                </button>
+                <button class="btn btn-success" onclick="verwerkEnPrint()" id="btnSubmit" disabled>
+                    <i class="bi bi-printer"></i> Maak Pakbon & Koppel in Snipe
+                </button>
+            </div>
         </div>
 
         <div class="row g-3 mb-4 bg-light p-3 rounded border">
@@ -82,15 +86,7 @@
             <h4 class="text-primary"><i class="bi bi-house-door"></i> Beschikbaar in Magazijn (Toevoegen)</h4>
             <div class="table-responsive mb-5">
                 <table class="table table-sm table-hover border">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 40px;"></th>
-                            <th>Categorie</th>
-                            <th>Model</th>
-                            <th>Serienummer</th>
-                            <th>Asset Tag</th>
-                        </tr>
-                    </thead>
+                    <thead class="table-light"><tr><th style="width: 40px;"></th><th>Categorie</th><th>Model</th><th>Serienummer</th><th>Asset Tag</th></tr></thead>
                     <tbody id="magazijnBody"></tbody>
                 </table>
             </div>
@@ -98,20 +94,33 @@
             <h4 class="text-success"><i class="bi bi-person-check"></i> Reeds bij Klant (Controleren)</h4>
             <div class="table-responsive">
                 <table class="table table-sm table-hover border">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 40px;"></th>
-                            <th>Categorie</th>
-                            <th>Model</th>
-                            <th>Serienummer</th>
-                            <th>Asset Tag</th>
-                        </tr>
-                    </thead>
+                    <thead class="table-light"><tr><th style="width: 40px;"></th><th>Categorie</th><th>Model</th><th>Serienummer</th><th>Asset Tag</th></tr></thead>
                     <tbody id="klantBody"></tbody>
                 </table>
             </div>
         </div>
     </div>
+</div>
+
+<div class="modal fade" id="archiefModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="bi bi-archive"></i> Pakbonnen Archief</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover m-0 align-middle">
+                <thead class="table-light">
+                    <tr><th>Datum</th><th>Klantnaam</th><th>Referentie</th><th>Items</th><th>Actie</th></tr>
+                </thead>
+                <tbody id="archiefBody"></tbody>
+            </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="print-only">
@@ -128,27 +137,18 @@
             <p style="margin: 5px 0 0 0;">Hardware Overdracht</p>
         </div>
     </div>
-    
     <p>Hierbij bevestigen wij de levering van onderstaande hardware:</p>
-    
     <table>
-        <thead>
-            <tr>
-                <th>Omschrijving</th>
-                <th>Model</th>
-                <th>Serienummer</th>
-                <th>Asset Tag</th>
-            </tr>
-        </thead>
+        <thead><tr><th>Omschrijving</th><th>Model</th><th>Serienummer</th><th>Asset Tag</th></tr></thead>
         <tbody id="pTable"></tbody>
     </table>
-    
     <div class="sig-box">
         <div class="sig-line">Handtekening IT (Geleverd)</div>
         <div class="sig-line">Handtekening Klant (Ontvangen)</div>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     fetch('/api/get_klanten_filters').then(r => r.json()).then(data => {
@@ -159,19 +159,15 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 let alles = [];
+let archiefData = [];
 
 async function laadData() {
     const cid = document.getElementById('companySelect').value;
     if(!cid) return;
-
     document.getElementById('loader').style.display = 'block';
     document.getElementById('listsArea').style.display = 'none';
 
-    const res = await fetch('/api/get_pakbon_data', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ company_id: cid })
-    }).then(r => r.json());
+    const res = await fetch('/api/get_pakbon_data', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ company_id: cid }) }).then(r => r.json());
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('listsArea').style.display = 'block';
@@ -181,8 +177,6 @@ async function laadData() {
     renderTable('klantBody', res.klant_assets, false);
     
     alles = [...res.magazijn_assets, ...res.klant_assets];
-
-    // Zet de focus direct op de scan balk zodat je meteen kunt scannen
     document.getElementById('scanInput').focus();
 }
 
@@ -190,110 +184,104 @@ function renderTable(id, data, isMagazijn) {
     const body = document.getElementById(id);
     body.innerHTML = data.length ? '' : '<tr><td colspan="5" class="text-center text-muted">Geen items gevonden</td></tr>';
     data.forEach(item => {
-        // We voegen een 'asset-row' class toe voor het filteren
         body.innerHTML += `
             <tr class="asset-row scan-flash">
-                <td><input type="checkbox" class="form-check-input item-check" data-id="${item.id}" data-idx="${alles.length + 999}"></td>
+                <td><input type="checkbox" class="form-check-input item-check" data-id="${item.id}"></td>
                 <td><span class="badge ${isMagazijn ? 'badge-magazijn' : 'bg-success'}">${item.category}</span></td>
                 <td><strong>${item.name}</strong><br><small class="text-muted">${item.model}</small></td>
                 <td class="serial-col"><code>${item.serial}</code></td>
                 <td class="tag-col"><small>${item.asset_tag}</small></td>
-            </tr>
-        `;
+            </tr>`;
     });
 }
 
-// ------------------------------------------
-// NIEUWE SCAN EN ZOEK LOGICA
-// ------------------------------------------
 function filterLijsten() {
     const term = document.getElementById('scanInput').value.toLowerCase();
-    const rows = document.querySelectorAll('.asset-row');
-    
-    rows.forEach(row => {
-        const text = row.innerText.toLowerCase();
-        if(text.includes(term)) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
-    });
+    document.querySelectorAll('.asset-row').forEach(row => row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none');
 }
 
 function wisScan() {
-    document.getElementById('scanInput').value = '';
-    filterLijsten();
-    document.getElementById('scanInput').focus();
+    document.getElementById('scanInput').value = ''; filterLijsten(); document.getElementById('scanInput').focus();
 }
 
 function checkScan(event) {
-    // Check of de Enter knop is ingedrukt (standaard gedrag van barcode scanners)
     if(event.key === 'Enter') {
         event.preventDefault();
         const term = document.getElementById('scanInput').value.trim().toLowerCase();
         if(!term) return;
-
         let matchFound = false;
-        const rows = document.querySelectorAll('.asset-row');
-
-        rows.forEach(row => {
-            const serial = row.querySelector('.serial-col').innerText.trim().toLowerCase();
-            const tag = row.querySelector('.tag-col').innerText.trim().toLowerCase();
-
-            // Als het een exacte match is met serial of tag
-            if(serial === term || tag === term) {
-                const checkbox = row.querySelector('.item-check');
-                if(!checkbox.checked) {
-                    checkbox.checked = true;
-                    // Korte groene flits voor visuele feedback
-                    row.classList.add('table-success');
-                    setTimeout(() => row.classList.remove('table-success'), 800);
-                }
+        document.querySelectorAll('.asset-row').forEach(row => {
+            if(row.querySelector('.serial-col').innerText.trim().toLowerCase() === term || row.querySelector('.tag-col').innerText.trim().toLowerCase() === term) {
+                const cb = row.querySelector('.item-check');
+                if(!cb.checked) { cb.checked = true; row.classList.add('table-success'); setTimeout(() => row.classList.remove('table-success'), 800); }
                 matchFound = true;
             }
         });
-
-        if(matchFound) {
-            wisScan(); // Wis de balk voor de volgende scan
-        } else {
-            alert("Apparaat niet gevonden in de huidige magazijn of klant lijst!");
-            document.getElementById('scanInput').select();
-        }
+        if(matchFound) wisScan(); else { alert("Apparaat niet gevonden!"); document.getElementById('scanInput').select(); }
     }
 }
-// ------------------------------------------
 
 async function verwerkEnPrint() {
     const checks = document.querySelectorAll('.item-check:checked');
-    const ids = Array.from(checks).map(c => c.getAttribute('data-id'));
+    if(checks.length === 0) return alert("Kies eerst wat spullen!");
+    
     const cid = document.getElementById('companySelect').value;
-
-    if(ids.length === 0) return alert("Kies eerst wat spullen!");
+    const klantnaam = document.getElementById('companySelect').options[document.getElementById('companySelect').selectedIndex].text;
+    const ref = document.getElementById('refVeld').value || "Hardware Levering";
+    
+    const ids = Array.from(checks).map(c => c.getAttribute('data-id'));
+    const items = ids.map(id => alles.find(a => a.id == id));
 
     if(confirm(`We gaan ${ids.length} apparaten koppelen aan deze klant in Snipe-IT. Akkoord?`)) {
-        const res = await fetch('/api/verwerk_pakbon', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ company_id: cid, asset_ids: ids })
-        }).then(r => r.json());
-
-        document.getElementById('pKlant').innerText = document.getElementById('companySelect').options[document.getElementById('companySelect').selectedIndex].text;
-        document.getElementById('pDate').innerText = new Date().toLocaleDateString('nl-NL');
-        document.getElementById('pRef').innerText = document.getElementById('refVeld').value || "Hardware Levering";
-        
-        const pTable = document.getElementById('pTable');
-        pTable.innerHTML = '';
-        
-        ids.forEach(id => {
-            const item = alles.find(a => a.id == id);
-            if(item) {
-                pTable.innerHTML += `<tr><td>${item.category}</td><td>${item.name}</td><td>${item.serial}</td><td>${item.asset_tag}</td></tr>`;
-            }
+        await fetch('/api/verwerk_pakbon', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ company_id: cid, klantnaam: klantnaam, referentie: ref, items: items })
         });
 
-        window.print();
+        bouwPrintEnToon(klantnaam, new Date().toLocaleDateString('nl-NL'), ref, items);
         laadData();
     }
+}
+
+// ARCHIEF LOGICA
+async function openArchief() {
+    const res = await fetch('/api/get_pakbon_geschiedenis').then(r => r.json());
+    archiefData = res.data;
+    const tbody = document.getElementById('archiefBody');
+    tbody.innerHTML = archiefData.length ? '' : '<tr><td colspan="5" class="text-center text-muted p-4">Nog geen archief beschikbaar.</td></tr>';
+    
+    archiefData.forEach((archief, index) => {
+        tbody.innerHTML += `
+            <tr>
+                <td class="fw-bold">${archief.datum_weergave}</td>
+                <td>${archief.klantnaam}</td>
+                <td>${archief.referentie}</td>
+                <td><span class="badge bg-secondary">${archief.items.length} stuks</span></td>
+                <td><button class="btn btn-sm btn-primary" onclick="printHistorie(${index})"><i class="bi bi-eye"></i> Bekijk/Print</button></td>
+            </tr>`;
+    });
+    new bootstrap.Modal(document.getElementById('archiefModal')).show();
+}
+
+function printHistorie(index) {
+    const data = archiefData[index];
+    // Vul de print template exact zoals deze in het archief stond
+    bouwPrintEnToon(data.klantnaam, data.datum_weergave.split(' ')[0], data.referentie, data.items);
+    bootstrap.Modal.getInstance(document.getElementById('archiefModal')).hide();
+}
+
+// GEDEELDE PRINT FUNCTIE
+function bouwPrintEnToon(klant, datum, ref, items) {
+    document.getElementById('pKlant').innerText = klant;
+    document.getElementById('pDate').innerText = datum;
+    document.getElementById('pRef').innerText = ref;
+    
+    const pTable = document.getElementById('pTable');
+    pTable.innerHTML = '';
+    items.forEach(item => {
+        pTable.innerHTML += `<tr><td>${item.category}</td><td><strong>${item.name}</strong></td><td>${item.serial}</td><td>${item.asset_tag}</td></tr>`;
+    });
+    window.print();
 }
 </script>
 </body>
