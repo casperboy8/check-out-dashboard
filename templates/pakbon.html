@@ -10,11 +10,11 @@
         .content-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
         #loader { display: none; margin-top: 20px; }
         .badge-magazijn { background-color: #6610f2; color: white; }
+        .scan-flash { transition: background-color 0.3s ease; }
         
         @media print {
             .no-print { display: none !important; }
             .print-only { display: block !important; padding: 20px; }
-            /* De header layout is aangepast voor het logo */
             .print-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 15px; }
             .header-left { display: flex; align-items: center; gap: 20px; }
             .print-logo { max-height: 80px; width: auto; }
@@ -73,6 +73,12 @@
         </div>
 
         <div id="listsArea" style="display:none;">
+            <div class="input-group input-group-lg mb-4 shadow-sm">
+                <span class="input-group-text bg-primary text-white border-primary"><i class="bi bi-upc-scan"></i></span>
+                <input type="text" id="scanInput" class="form-control border-primary" placeholder="Scan barcode/serienummer, of typ om te zoeken..." oninput="filterLijsten()" onkeypress="checkScan(event)">
+                <button class="btn btn-outline-danger border-primary" type="button" onclick="wisScan()"><i class="bi bi-x-lg"></i> Wis</button>
+            </div>
+
             <h4 class="text-primary"><i class="bi bi-house-door"></i> Beschikbaar in Magazijn (Toevoegen)</h4>
             <div class="table-responsive mb-5">
                 <table class="table table-sm table-hover border">
@@ -175,23 +181,87 @@ async function laadData() {
     renderTable('klantBody', res.klant_assets, false);
     
     alles = [...res.magazijn_assets, ...res.klant_assets];
+
+    // Zet de focus direct op de scan balk zodat je meteen kunt scannen
+    document.getElementById('scanInput').focus();
 }
 
 function renderTable(id, data, isMagazijn) {
     const body = document.getElementById(id);
     body.innerHTML = data.length ? '' : '<tr><td colspan="5" class="text-center text-muted">Geen items gevonden</td></tr>';
     data.forEach(item => {
+        // We voegen een 'asset-row' class toe voor het filteren
         body.innerHTML += `
-            <tr>
+            <tr class="asset-row scan-flash">
                 <td><input type="checkbox" class="form-check-input item-check" data-id="${item.id}" data-idx="${alles.length + 999}"></td>
                 <td><span class="badge ${isMagazijn ? 'badge-magazijn' : 'bg-success'}">${item.category}</span></td>
                 <td><strong>${item.name}</strong><br><small class="text-muted">${item.model}</small></td>
-                <td><code>${item.serial}</code></td>
-                <td><small>${item.asset_tag}</small></td>
+                <td class="serial-col"><code>${item.serial}</code></td>
+                <td class="tag-col"><small>${item.asset_tag}</small></td>
             </tr>
         `;
     });
 }
+
+// ------------------------------------------
+// NIEUWE SCAN EN ZOEK LOGICA
+// ------------------------------------------
+function filterLijsten() {
+    const term = document.getElementById('scanInput').value.toLowerCase();
+    const rows = document.querySelectorAll('.asset-row');
+    
+    rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        if(text.includes(term)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function wisScan() {
+    document.getElementById('scanInput').value = '';
+    filterLijsten();
+    document.getElementById('scanInput').focus();
+}
+
+function checkScan(event) {
+    // Check of de Enter knop is ingedrukt (standaard gedrag van barcode scanners)
+    if(event.key === 'Enter') {
+        event.preventDefault();
+        const term = document.getElementById('scanInput').value.trim().toLowerCase();
+        if(!term) return;
+
+        let matchFound = false;
+        const rows = document.querySelectorAll('.asset-row');
+
+        rows.forEach(row => {
+            const serial = row.querySelector('.serial-col').innerText.trim().toLowerCase();
+            const tag = row.querySelector('.tag-col').innerText.trim().toLowerCase();
+
+            // Als het een exacte match is met serial of tag
+            if(serial === term || tag === term) {
+                const checkbox = row.querySelector('.item-check');
+                if(!checkbox.checked) {
+                    checkbox.checked = true;
+                    // Korte groene flits voor visuele feedback
+                    row.classList.add('table-success');
+                    setTimeout(() => row.classList.remove('table-success'), 800);
+                }
+                matchFound = true;
+            }
+        });
+
+        if(matchFound) {
+            wisScan(); // Wis de balk voor de volgende scan
+        } else {
+            alert("Apparaat niet gevonden in de huidige magazijn of klant lijst!");
+            document.getElementById('scanInput').select();
+        }
+    }
+}
+// ------------------------------------------
 
 async function verwerkEnPrint() {
     const checks = document.querySelectorAll('.item-check:checked');
