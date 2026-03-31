@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>IT Dashboard | Pakbon Maken</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .content-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
+        #loader { display: none; margin-top: 20px; }
+        
+        /* Print Styles - Deze maken van de webpagina een strak A4 document */
+        .print-only { display: none; }
+        @media print {
+            body { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
+            .no-print, nav, .content-container { display: none !important; box-shadow: none; }
+            .print-only { display: block; padding: 20px; font-family: Arial, sans-serif; }
+            .print-header { display: flex; justify-content: space-between; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+            .print-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+            .print-table th, .print-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            .print-table th { background-color: #f2f2f2 !important; }
+            .signature-box { display: flex; justify-content: space-between; margin-top: 50px; }
+            .sig-line { width: 45%; border-top: 1px solid #000; padding-top: 5px; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="no-print">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="/">IT Dashboard</a>
+        <div class="collapse navbar-collapse">
+          <ul class="navbar-nav">
+            <li class="nav-item"><a class="nav-link" href="/">Checkouts</a></li>
+            <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Sync</a></li>
+            <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
+            <li class="nav-item"><a class="nav-link" href="/import_dashboard">Lijst Controle</a></li>
+            <li class="nav-item"><a class="nav-link active" href="/pakbon_dashboard">Pakbonnen</a></li>
+            <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container content-container">
+        <h2 class="mb-4"><i class="bi bi-box-seam"></i> Pakbon Genereren</h2>
+        <div class="row mb-4 bg-light p-3 rounded border">
+            <div class="col-md-5">
+                <label class="form-label fw-bold">Selecteer Klant:</label>
+                <select id="companySelect" class="form-select" onchange="haalAssetsOp()">
+                    <option value="">-- Laden... --</option>
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label fw-bold">Referentie / Ticketnummer (Optioneel):</label>
+                <input type="text" id="referentieVeld" class="form-control" placeholder="Bijv. Ticket #1024">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-success w-100" onclick="printPakbon()" id="btnPrint" disabled>
+                    <i class="bi bi-printer"></i> Maak Pakbon
+                </button>
+            </div>
+        </div>
+
+        <div id="loader" class="text-center">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Apparaten ophalen...</p>
+        </div>
+
+        <div id="resultsArea" style="display: none;">
+            <p class="text-muted">Vink de apparaten aan die je nu fysiek aan het inpakken bent.</p>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mt-3">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 5%">
+                                <input class="form-check-input" type="checkbox" id="checkAll" onchange="toggleAll(this)">
+                            </th>
+                            <th style="width: 15%">Asset Tag</th>
+                            <th style="width: 25%">Naam</th>
+                            <th style="width: 25%">Model</th>
+                            <th style="width: 30%">Serienummer</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="print-only">
+    <div class="print-header">
+        <div>
+            <h2><strong>IT LEVERING (PAKBON)</strong></h2>
+            <p>Datum: <span id="printDatum"></span><br>
+            Referentie: <span id="printRef"></span></p>
+        </div>
+        <div style="text-align: right;">
+            <h4 id="printKlantNaam">KLANTNAAM</h4>
+            <p>Gegenereerd vanuit Asset Management</p>
+        </div>
+    </div>
+
+    <p>Onderstaande hardware is klaargemaakt en geleverd/overgedragen aan de klant.</p>
+
+    <table class="print-table">
+        <thead>
+            <tr>
+                <th>Asset Tag</th>
+                <th>Apparaat Naam</th>
+                <th>Model</th>
+                <th>Serienummer</th>
+            </tr>
+        </thead>
+        <tbody id="printTableBody">
+            </tbody>
+    </table>
+
+    <div class="signature-box">
+        <div class="sig-line">
+            <strong>Geleverd door (IT)</strong><br><br><br>
+            Naam / Handtekening
+        </div>
+        <div class="sig-line">
+            <strong>Voor ontvangst akkoord (Klant)</strong><br><br><br>
+            Naam / Handtekening
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    fetch('/api/get_klanten_filters')
+    .then(res => res.json())
+    .then(data => {
+        const compSelect = document.getElementById('companySelect');
+        compSelect.innerHTML = '<option value="">-- Kies een klant --</option>';
+        data.companies.forEach(c => {
+            compSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+        });
+    });
+});
+
+let huidigeAssets = [];
+
+function haalAssetsOp() {
+    const compId = document.getElementById('companySelect').value;
+    if(!compId) {
+        document.getElementById('resultsArea').style.display = 'none';
+        document.getElementById('btnPrint').disabled = true;
+        return;
+    }
+
+    document.getElementById('loader').style.display = 'block';
+    document.getElementById('resultsArea').style.display = 'none';
+    document.getElementById('assetsBody').innerHTML = '';
+
+    fetch('/api/get_klant_assets_raw', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ company_id: compId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loader').style.display = 'none';
+        if(data.status === 'error') return alert(data.message);
+
+        huidigeAssets = data.data;
+        const tbody = document.getElementById('assetsBody');
+        
+        if(huidigeAssets.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Geen actieve apparaten gevonden voor deze klant.</td></tr>';
+            document.getElementById('btnPrint').disabled = true;
+        } else {
+            huidigeAssets.forEach((item, index) => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><input class="form-check-input item-check" type="checkbox" value="${index}"></td>
+                        <td><code>${item.asset_tag}</code></td>
+                        <td class="fw-bold">${item.name}</td>
+                        <td>${item.model}</td>
+                        <td class="text-muted">${item.serial}</td>
+                    </tr>
+                `;
+            });
+            document.getElementById('btnPrint').disabled = false;
+        }
+        document.getElementById('resultsArea').style.display = 'block';
+        document.getElementById('checkAll').checked = false;
+    });
+}
+
+function toggleAll(source) {
+    const checkboxes = document.querySelectorAll('.item-check');
+    checkboxes.forEach(cb => cb.checked = source.checked);
+}
+
+function printPakbon() {
+    const geselecteerdeIndexes = Array.from(document.querySelectorAll('.item-check:checked')).map(cb => cb.value);
+    
+    if(geselecteerdeIndexes.length === 0) {
+        alert("Vink minimaal één apparaat aan om een pakbon te maken.");
+        return;
+    }
+
+    // Vul de printvelden in
+    const select = document.getElementById('companySelect');
+    document.getElementById('printKlantNaam').innerText = select.options[select.selectedIndex].text;
+    
+    const vandaag = new Date().toLocaleDateString('nl-NL');
+    document.getElementById('printDatum').innerText = vandaag;
+    
+    let ref = document.getElementById('referentieVeld').value;
+    document.getElementById('printRef').innerText = ref ? ref : "Standaard Levering";
+
+    // Vul de print tabel
+    const printTbody = document.getElementById('printTableBody');
+    printTbody.innerHTML = '';
+    
+    geselecteerdeIndexes.forEach(index => {
+        const item = huidigeAssets[index];
+        printTbody.innerHTML += `
+            <tr>
+                <td>${item.asset_tag}</td>
+                <td><strong>${item.name}</strong></td>
+                <td>${item.model}</td>
+                <td>${item.serial}</td>
+            </tr>
+        `;
+    });
+
+    // Roep de browser print dialoog aan (Sla op als PDF of Print direct)
+    window.print();
+}
+</script>
+</body>
+</html>

@@ -158,6 +158,51 @@ def bulk_update_status():
     return jsonify({"status": "success", "success_count": success_count, "errors": []})
 
 # ==========================================
+# FLASK ROUTES (PAKBONNEN)
+# ==========================================
+@app.route('/pakbon_dashboard')
+def pakbon_dashboard():
+    return render_template('pakbon.html')
+
+@app.route('/api/get_klant_assets_raw', methods=['POST'])
+def api_get_klant_assets_raw():
+    """Haalt de rauwe lijst van apparaten op (met serials) voor de pakbon maker."""
+    data = request.json
+    company_id = data.get('company_id')
+    if not company_id: 
+        return jsonify({"status": "error", "message": "Geen klant geselecteerd."})
+
+    alle_assets = []
+    offset = 0
+    while True:
+        url = f"{config.HARDWARE_URL}?company_id={company_id}&limit=1000&offset={offset}"
+        resp = requests.get(url, headers=config.headers)
+        if resp.status_code != 200: break
+        rows = resp.json().get('rows', [])
+        if not rows: break
+        alle_assets.extend(rows)
+        offset += 1000
+
+    actieve_assets = []
+    for a in alle_assets:
+        status_meta = str(a.get('status_label', {}).get('status_meta', '')).lower()
+        # Negeer apparaten die afgeschreven/defect zijn
+        if status_meta not in ['archived', 'undeployable']:
+            actieve_assets.append({
+                "id": a['id'],
+                "name": a.get('name') or 'Naamloos',
+                "asset_tag": a.get('asset_tag') or '',
+                "serial": a.get('serial') or 'Geen serienummer',
+                "model": a.get('model', {}).get('name', 'Onbekend') if a.get('model') else 'Onbekend',
+                "category": a.get('category', {}).get('name', 'Onbekend') if a.get('category') else 'Onbekend'
+            })
+
+    # Sorteer op categorie en daarna op naam
+    actieve_assets = sorted(actieve_assets, key=lambda x: (x['category'], x['name']))
+
+    return jsonify({"status": "success", "data": actieve_assets})
+
+# ==========================================
 # FLASK ROUTES (API / KLANTEN & INSTELLINGEN)
 # ==========================================
 @app.route('/api/get_klanten_filters', methods=['GET'])
