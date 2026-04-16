@@ -57,29 +57,23 @@ def zoek_bitlocker_sleutel(data):
     return None
 
 def zoek_hardware_specs(data):
-    """Zoekt recursief naar CPU, RAM en MAC-adres in de Action1 endpoint details."""
     specs = {'CPU': '', 'RAM': '', 'MAC': ''}
 
     def zoek_recursief(obj):
         if isinstance(obj, dict):
             for k, v in obj.items():
                 kl = k.lower()
-
                 if not specs['CPU'] and ('cpu' in kl or 'processor' in kl) and isinstance(v, str) and len(v) > 2:
                     specs['CPU'] = v.strip()
-
                 if not specs['RAM'] and ('ram' in kl or 'memory' in kl) and 'free' not in kl and 'available' not in kl:
                     if isinstance(v, (int, float)):
                         specs['RAM'] = f"{round(v / (1024**3))} GB" if v > 1000000 else f"{v} GB"
                     elif isinstance(v, str) and 'gb' in v.lower():
                         specs['RAM'] = v.strip()
-
                 if not specs['MAC'] and 'mac' in kl and isinstance(v, str) and ':' in v:
                     specs['MAC'] = v.strip()
-
                 if isinstance(v, (dict, list)):
                     zoek_recursief(v)
-
         elif isinstance(obj, list):
             for item in obj:
                 if isinstance(item, (dict, list)):
@@ -89,18 +83,24 @@ def zoek_hardware_specs(data):
     return specs
 
 def haal_snipe_assets_op():
+    """Haalt alle assets op, inclusief gearchiveerde en verwijderde items."""
     alle_assets = []
-    limit = 200
-    offset = 0
-    while True:
-        response = requests.get(f"{config.HARDWARE_URL}?limit={limit}&offset={offset}&sort=id&order=asc", headers=config.headers)
-        if response.status_code != 200: break
-        data = response.json()
-        rows = data.get('rows', [])
-        if not rows: break
-        alle_assets.extend(rows)
-        offset += limit
-        if len(alle_assets) >= data.get('total', 0): break
+    # We halen zowel de reguliere als de gearchiveerde assets op om 'missers' te voorkomen
+    filters = ["", "&archived=true", "&deleted=true"]
+    
+    for f in filters:
+        limit = 500
+        offset = 0
+        while True:
+            response = requests.get(f"{config.HARDWARE_URL}?limit={limit}&offset={offset}&sort=id&order=asc{f}", headers=config.headers)
+            if response.status_code != 200: break
+            data = response.json()
+            rows = data.get('rows', [])
+            if not rows: break
+            alle_assets.extend(rows)
+            offset += limit
+            if offset >= data.get('total', 0): break
+            
     return alle_assets
 
 def haal_action1_token_op(client_id, client_secret, region_url):
@@ -136,7 +136,7 @@ def haal_action1_endpoint_details(token, org_id, region_url, endpoint_id):
 
 def voer_sync_scan_uit():
     if not config.ACTION1_INSTANTIES:
-        return {"status": "error", "message": "Geen Action1 configuratie gevonden. Controleer je .env bestand."}
+        return {"status": "error", "message": "Geen Action1 configuratie gevonden."}
 
     snipe_assets = haal_snipe_assets_op()
     if not snipe_assets: return {"status": "error", "message": "Kan Snipe-IT niet bereiken."}
@@ -159,7 +159,7 @@ def voer_sync_scan_uit():
         
         if naam:
             snipe_dict_naam[naam.strip().lower()] = asset_data
-        if serial and len(serial) > 3 and serial.lower() not in config.NEGEER_SERIALS:
+        if serial and len(serial) > 3:
             snipe_dict_serial[serial.lower()] = asset_data
 
     alle_ontbrekende_endpoints = []
@@ -187,11 +187,13 @@ def voer_sync_scan_uit():
                 action1_naam = endpoint.get('name', endpoint.get('hostname', 'ONBEKEND'))
                 naam_lower = action1_naam.strip().lower()
                 
-                a1_serial = zoek_serienummer(details) or ""
-                # --- NIEUWE LOGICA: Filter foute serienummers (zoals Default string) direct uit Action1 data ---
-                if a1_serial.strip().lower() in config.NEGEER_SERIALS:
+                # SERIAL FILTER: Check of de serial een ongewenste waarde is (zoals 'Default string')
+                raw_serial = zoek_serienummer(details) or ""
+                if raw_serial.strip().lower() in config.NEGEER_SERIALS:
                     a1_serial = ""
-                # ------------------------------------------------------------------------------------------------
+                else:
+                    a1_serial = raw_serial
+
                 a1_serial_lower = a1_serial.lower()
                 bitlocker = "Geen BitLocker veld"
                 hardware = zoek_hardware_specs(details)
@@ -232,24 +234,20 @@ def voer_sync_scan_uit():
                             'hardware': hardware
                         })
 
-                # Controleer of bestaande Snipe-IT assets lege hardware velden hebben
                 if snipe_data:
                     snipe_cf = snipe_data.get('custom_fields', {})
                     if isinstance(snipe_cf, dict) and hasattr(config, 'SNIPE_CUSTOM_FIELDS'):
                         payload_updates = {}
-
                         db_cpu = config.SNIPE_CUSTOM_FIELDS.get('CPU', '')
                         if db_cpu:
                             sn_cpu = str(snipe_cf.get(db_cpu, {}).get('value') or '')
                             if hardware['CPU'] and sn_cpu != hardware['CPU']:
                                 payload_updates[db_cpu] = hardware['CPU']
-
                         db_ram = config.SNIPE_CUSTOM_FIELDS.get('RAM', '')
                         if db_ram:
                             sn_ram = str(snipe_cf.get(db_ram, {}).get('value') or '')
                             if hardware['RAM'] and sn_ram != hardware['RAM']:
                                 payload_updates[db_ram] = hardware['RAM']
-
                         db_mac = config.SNIPE_CUSTOM_FIELDS.get('MAC', '')
                         if db_mac:
                             sn_mac = str(snipe_cf.get(db_mac, {}).get('value') or '')
@@ -258,10 +256,8 @@ def voer_sync_scan_uit():
 
                         if payload_updates:
                             alle_hardware_updates.append({
-                                'naam': action1_naam,
-                                'snipe_id': snipe_data['id'],
-                                'updates': payload_updates,
-                                'bron_instantie': naam_inst
+                                'naam': action1_naam, 'snipe_id': snipe_data['id'],
+                                'updates': payload_updates, 'bron_instantie': naam_inst
                             })
 
     result = {
@@ -271,10 +267,8 @@ def voer_sync_scan_uit():
         "ontbrekende_endpoints": alle_ontbrekende_endpoints,
         "hardware_updates": alle_hardware_updates
     }
-    
     config.CACHE["action1_sync"] = {
         "tijd_str": datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
         "data": result
     }
-    
     return result
