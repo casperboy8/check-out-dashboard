@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}AI Matcher | IT Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-robot"></i> AI Matcher Suggesties</h1>
+    <button class="btn btn-primary" id="btnRunAI" onclick="runAIMatch()">
+        <span id="aiSpinner" class="spinner-border spinner-border-sm d-none"></span>
+        Start AI Analyse
+    </button>
+</div>
+
+<div id="aiAlert" class="alert d-none"></div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-dark text-white">
+        Laatste Analyse: <span id="lastRun">{{ cache.tijd_str if cache.tijd_str else 'Nooit' }}</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Action1 Naam</th>
+                        <th>Snipe-IT Match</th>
+                        <th>Zekerheid</th>
+                        <th>Reden</th>
+                        <th>Actie</th>
+                    </tr>
+                </thead>
+                <tbody id="aiTableBody">
+                    {% if cache.matches %}
+                        {% for match in cache.matches %}
+                        <tr>
+                            <td><span class="badge bg-info text-dark">{{ match.action1_naam }}</span></td>
+                            <td><span class="badge bg-success">{{ match.snipe_naam }}</span></td>
+                            <td>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar" role="progressbar" style="width: {{ match.zekerheid_procent }}%;">
+                                        {{ match.zekerheid_procent }}%
+                                    </div>
+                                </div>
+                            </td>
+                            <td><small>{{ match.reden }}</small></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary">Koppelen</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr><td colspan="5" class="text-center text-muted">Geen AI suggesties gevonden. Klik op de knop om te starten.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function runAIMatch() {
+    const btn = document.getElementById('btnRunAI');
+    const spinner = document.getElementById('aiSpinner');
+    const alert = document.getElementById('aiAlert');
+    
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    
+    fetch('/run_ai_match', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            location.reload();
+        } else {
+            alert.className = 'alert alert-danger';
+            alert.innerText = data.message;
+            alert.classList.remove('d-none');
+        }
+    })
+    .finally(() => {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    });
+}
+</script>
+{% endblock %}

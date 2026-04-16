@@ -4,13 +4,15 @@ import threading
 import time
 import json
 import os
+from datetime import datetime
 
 # Importeer onze eigen opgesplitste bestanden
 import config
 import snipe_api
 import action1_sync
 import import_check
-import pakbon  # <--- Onze nieuwe module!
+import pakbon  
+import ai_matcher  # <--- Onze nieuwe AI module
 
 app = Flask(__name__)
 
@@ -57,19 +59,29 @@ def index():
     return render_template('index.html', items=df.to_dict(orient='records') if not df.empty else [], db_column_naam=db_column_naam)
 
 @app.route('/sync_dashboard')
-def sync_dashboard(): return render_template('sync.html')
+def sync_dashboard(): 
+    return render_template('sync.html')
 
 @app.route('/klanten_dashboard')
-def klanten_dashboard(): return render_template('klanten.html')
+def klanten_dashboard(): 
+    return render_template('klanten.html')
 
 @app.route('/import_dashboard')
-def import_dashboard(): return render_template('import.html')
+def import_dashboard(): 
+    return render_template('import.html')
 
 @app.route('/instellingen_dashboard')
-def instellingen_dashboard(): return render_template('instellingen.html')
+def instellingen_dashboard(): 
+    return render_template('instellingen.html')
 
 @app.route('/pakbon_dashboard')
-def pakbon_dashboard(): return render_template('pakbon.html')
+def pakbon_dashboard(): 
+    return render_template('pakbon.html')
+
+@app.route('/ai_dashboard')
+def ai_dashboard(): 
+    ai_cache = config.CACHE.get("ai_matches", {})
+    return render_template('ai_matches.html', cache=ai_cache)
 
 # ==========================================
 # FLASK ROUTES (API / PAKBONNEN)
@@ -91,8 +103,9 @@ def api_verwerk_pakbon():
 @app.route('/api/get_pakbon_geschiedenis', methods=['GET'])
 def api_get_pakbon_geschiedenis():
     return jsonify({"status": "success", "data": pakbon.haal_geschiedenis_op()})
+
 # ==========================================
-# FLASK ROUTES (API / ACTION1)
+# FLASK ROUTES (API / ACTION1 & AI)
 # ==========================================
 @app.route('/api/get_cached_sync', methods=['GET'])
 def api_get_cached_sync():
@@ -103,6 +116,28 @@ def api_get_cached_sync():
 @app.route('/api/run_sync_scan', methods=['GET'])
 def api_run_sync_scan():
     return jsonify(action1_sync.voer_sync_scan_uit())
+
+@app.route('/api/run_ai_match', methods=['POST'])
+def api_run_ai_match():
+    sync_cache = config.CACHE.get("action1_sync", {})
+    if not sync_cache:
+        return jsonify({"status": "error", "message": "Voer eerst een normale sync uit om data te verzamelen."})
+    
+    data = sync_cache.get("data", {})
+    ontbrekende_a1 = data.get("ontbrekende_endpoints", [])
+    
+    alle_snipe_assets = action1_sync.haal_snipe_assets_op()
+    gearchiveerde_snipe = [a for a in alle_snipe_assets if (a.get('status_label') or {}).get('name') == 'Archived' or a.get('deleted_at')]
+
+    result = ai_matcher.analyseer_mismatches_met_ai(ontbrekende_a1, gearchiveerde_snipe)
+    
+    if result["status"] == "success":
+        config.CACHE["ai_matches"] = {
+            "tijd_str": datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
+            "matches": result["matches"]
+        }
+    
+    return jsonify(result)
 
 @app.route('/api/apply_sync_fixes', methods=['POST'])
 def api_apply_sync_fixes():
@@ -121,7 +156,6 @@ def api_apply_sync_fixes():
                 success_count += 1
             elif actie_type == 'create_new':
                 extra = item.get('extra_data', {})
-                from datetime import datetime
                 notes_text = (
                     f"🤖 ACTION1 IMPORT - {datetime.now().strftime('%d-%m-%Y')}\n"
                     f"------------------------------------------\n"
