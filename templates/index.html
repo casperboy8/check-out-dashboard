@@ -1,40 +1,13 @@
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Dashboard | Check-out</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <style>
-        body { background-color: #f8f9fa; }
-        /* Specifieke class toegevoegd voor de content, zodat de navbar met rust gelaten wordt */
-        .content-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px;}
-        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1055; }
-        .bulk-actions { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: none; }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/">IT Dashboard</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="/">Uitgecheckte Items</a></li>
-        <li class="nav-item"><a class="nav-link" href="/sync_dashboard">Action1 Sync</a></li>
-        <li class="nav-item"><a class="nav-link" href="/klanten_dashboard">Klant Inventaris</a></li>
-        <li class="nav-item"><a class="nav-link" href="/import_dashboard">CSV Controle</a></li>
-        <li class="nav-item"><a class="nav-link" href="/instellingen_dashboard">Instellingen</a></li>
-        <li class="nav-item"><a class="nav-link" href="/pakbon_dashboard">Pakbonnen</a></li>
-      </u
-    </div>
-  </div>
-</nav>
+{% block title %}IT Dashboard | Check-out{% endblock %}
 
+{% block extra_css %}
+    .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1055; }
+    .bulk-actions { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: none; }
+{% endblock %}
+
+{% block content %}
 <div class="container-fluid content-container">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Logboek: Uitgecheckte Items</h1>
@@ -110,7 +83,9 @@
 </div>
 
 <div class="toast-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}
+
+{% block extra_js %}
 <script>
     const dbColumnNaam = "{{ db_column_naam }}";
 
@@ -196,5 +171,4 @@
 
     document.addEventListener('DOMContentLoaded', applyFilters);
 </script>
-</body>
-</html>
+{% endblock %}

@@ -188,6 +188,10 @@ def voer_sync_scan_uit():
                 naam_lower = action1_naam.strip().lower()
                 
                 a1_serial = zoek_serienummer(details) or ""
+                # --- NIEUWE LOGICA: Filter foute serienummers (zoals Default string) direct uit Action1 data ---
+                if a1_serial.strip().lower() in config.NEGEER_SERIALS:
+                    a1_serial = ""
+                # ------------------------------------------------------------------------------------------------
                 a1_serial_lower = a1_serial.lower()
                 bitlocker = "Geen BitLocker veld"
                 hardware = zoek_hardware_specs(details)
