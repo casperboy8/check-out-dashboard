@@ -12,7 +12,7 @@ import snipe_api
 import action1_sync
 import import_check
 import pakbon  
-import ai_matcher  # <--- Onze nieuwe AI module
+import ai_matcher  
 
 app = Flask(__name__)
 
@@ -117,19 +117,54 @@ def api_get_cached_sync():
 def api_run_sync_scan():
     return jsonify(action1_sync.voer_sync_scan_uit())
 
-@app.route('/api/run_ai_match', methods=['POST'])
-def api_run_ai_match():
+def bereid_ai_data_voor():
+    """Hulpfunctie om de data voor de AI en Debugger op te halen"""
     sync_cache = config.CACHE.get("action1_sync", {})
     if not sync_cache:
-        return jsonify({"status": "error", "message": "Voer eerst een normale sync uit om data te verzamelen."})
-    
+        return None, None
+        
     data = sync_cache.get("data", {})
+    # Pak Action1 apparaten die écht geen match vonden
     ontbrekende_a1 = data.get("ontbrekende_endpoints", [])
     
+    # Pak Snipe-IT apparaten die óf gearchiveerd zijn, óf helemaal geen serial hebben
     alle_snipe_assets = action1_sync.haal_snipe_assets_op()
-    gearchiveerde_snipe = [a for a in alle_snipe_assets if (a.get('status_label') or {}).get('name') == 'Archived' or a.get('deleted_at')]
+    
+    kandidaat_snipe = []
+    for a in alle_snipe_assets:
+        meta = str((a.get('status_label') or {}).get('status_meta', '')).lower()
+        serial = str(a.get('serial', '')).strip()
+        # Voeg toe als hij gearchiveerd/verwijderd is, OF als het serienummer leeg is
+        if meta in ['archived', 'undeployable'] or a.get('deleted_at') or not serial or serial.lower() in config.NEGEER_SERIALS:
+            kandidaat_snipe.append(a)
+            
+    return ontbrekende_a1, kandidaat_snipe
 
-    result = ai_matcher.analyseer_mismatches_met_ai(ontbrekende_a1, gearchiveerde_snipe)
+@app.route('/api/debug_ai_data', methods=['GET'])
+def api_debug_ai_data():
+    """Nieuwe route om te ZIEN wat de AI gaat vergelijken."""
+    ontbrekende_a1, kandidaat_snipe = bereid_ai_data_voor()
+    
+    if ontbrekende_a1 is None:
+        return jsonify({"status": "error", "message": "Voer eerst een Sync uit!"})
+        
+    # We sturen een uitgeklede, leesbare lijst terug naar de frontend
+    return jsonify({
+        "status": "success",
+        "action1_aantal": len(ontbrekende_a1),
+        "snipe_aantal": len(kandidaat_snipe),
+        "action1_lijst": [{"naam": a.get('name'), "serial": a.get('berekend_serial')} for a in ontbrekende_a1],
+        "snipe_lijst": [{"id": a.get('id'), "naam": a.get('name'), "serial": a.get('serial'), "status": (a.get('status_label') or {}).get('name')} for a in kandidaat_snipe]
+    })
+
+@app.route('/api/run_ai_match', methods=['POST'])
+def api_run_ai_match():
+    ontbrekende_a1, kandidaat_snipe = bereid_ai_data_voor()
+    
+    if ontbrekende_a1 is None:
+        return jsonify({"status": "error", "message": "Voer eerst een normale sync uit om data te verzamelen."})
+
+    result = ai_matcher.analyseer_mismatches_met_ai(ontbrekende_a1, kandidaat_snipe)
     
     if result["status"] == "success":
         config.CACHE["ai_matches"] = {

@@ -30,7 +30,7 @@ def analyseer_mismatches_met_ai(ontbrekende_action1, gearchiveerde_snipe_it):
     if not a1_data or not snipe_data:
         return {"status": "error", "message": "Niet genoeg data om te vergelijken."}
 
-    ollama_url = "http://localhost:11434/api/generate"
+    ollama_url = "http://192.168.100.246:11434/api/generate"
     
     # De prompt waarin we de AI precies vertellen WAT we verwachten
     prompt = f"""
